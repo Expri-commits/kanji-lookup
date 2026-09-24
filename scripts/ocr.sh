@@ -1,27 +1,20 @@
 #!/bin/bash
 # kotoba OCR: recognize Japanese text for the dictionary search box.
-#   scripts/ocr.sh            Interactive: freeze the screen (hyprpicker), select a region
-#                             (slurp), capture it (grim), OCR with tesseract jpn, and print
-#                             the cleaned text (newlines stripped, ASCII spaces collapsed)
-#                             on one line to stdout.
+#   scripts/ocr.sh            Interactive: select a region (slurp), capture it
+#                             (grim), OCR with tesseract jpn, and print the
+#                             cleaned text (newlines stripped, ASCII spaces
+#                             collapsed) on one line to stdout.
 #   scripts/ocr.sh --file P   Headless test mode: OCR image file P with the same
 #                             tesseract flags and cleaning rules.
 # Exit codes: 0 ok (or user cancelled region); 1 no text recognized; 2 Japanese data missing.
+# ponytail: no screen-freeze layer (hyprpicker/wayfreeze) on purpose — an
+# interactive freeze layer under slurp has undefined stacking/input routing on
+# Hyprland (ate Escape, ate the drag click). Pause videos instead; if a freeze
+# is ever wanted, wayfreeze --enable-keyboard is the safe tool for it.
 
 set -euo pipefail
 
 usage() { echo "usage: ocr.sh [--file <image>]" >&2; }
-
-# Keep hyprpicker alive until after grim captures so the screenshot sees the
-# frozen overlay rather than live content shifting during teardown.
-cleanup_freeze() {
-  if [[ -n ${PID:-} ]]; then
-    kill "$PID" 2>/dev/null || true
-  fi
-  if [[ -n ${WATCHER:-} ]]; then
-    kill "$WATCHER" 2>/dev/null || true
-  fi
-}
 
 LANGS=${KOTOBA_OCR_LANGS:-jpn+jpn_vert}
 
@@ -62,20 +55,10 @@ main() {
   if [[ $mode == file ]]; then
     raw=$(tesseract "$file" stdout --oem 1 --psm 6 -l "$LANGS" --dpi 300 -c preserve_interword_spaces=1 2>/dev/null) || exit 1
   else
-    trap cleanup_freeze EXIT
-    hyprpicker -r -z >/dev/null 2>&1 &
-    PID=$!
-    sleep .1
-    # One Escape must bail everything: the freeze layer eats the first Esc and
-    # hyprpicker dies, so watch it and kill slurp the moment it goes.
-    ( while kill -0 "$PID" 2>/dev/null; do sleep 0.05; done
-      pkill -x slurp 2>/dev/null ) &
-    WATCHER=$!
     local selection
     selection=$(slurp 2>/dev/null) || true
-    kill "$WATCHER" 2>/dev/null || true # before any later slurp could exist
     if [[ -z $selection ]]; then
-      exit 0 # user cancelled the region
+      exit 0 # user cancelled the region (Escape or a degenerate click)
     fi
     raw=$(grim -g "$selection" - | tesseract stdin stdout --oem 1 --psm 6 -l "$LANGS" --dpi 300 -c preserve_interword_spaces=1 2>/dev/null) || exit 1
   fi
