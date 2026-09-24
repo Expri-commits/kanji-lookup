@@ -161,7 +161,10 @@ Panel {
         return
       }
       var text = String(ocrOut.text || "").replace(/\r?\n/g, " ").trim()
-      if (text === "") { root.statusText = "OCR found no text"; return }
+      // ocr.sh's contract: exit 0 with empty stdout happens only when the
+      // user cancelled the region selection — a real miss is exit 1 with
+      // stderr. Treat it as a silent cancel, not an OCR failure.
+      if (text === "") { root.statusText = ""; return }
       // Assignment routes through onTextChanged into the debounce → lookup.
       searchField.text = text
     }
