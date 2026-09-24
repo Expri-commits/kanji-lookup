@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.expri-commits.kotoba",
+  "name": "Kotoba",
+  "version": "0.1.0",
+  "author": "Expri",
+  "license": "MIT",
+  "description": "Japanese dictionary lookup in the bar: search JMdict/KANJIDIC2 offline, capture kanji from the screen via OCR",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Kotoba",
+    "description": "Japanese dictionary lookup in the bar: search JMdict/KANJIDIC2 offline, capture kanji from the screen via OCR",
+    "category": "Info",
+    "allowMultiple": false
+  }
+}
