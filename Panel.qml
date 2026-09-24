@@ -51,7 +51,7 @@ Panel {
     debounce.stop()
     root.lastQuery = query
     if (query === "") { root.clearResults(); root.statusText = ""; return }
-    if (lookupProc.running) lookupProc.running = false // kill the stale run
+    if (lookupProc.running) { lookupProc.killed = true; lookupProc.running = false } // kill the stale run
     root.lookupSeq++
     lookupProc.seq = root.lookupSeq
     lookupProc.command = ["bash", root.scriptPath("lookup.sh"), query]
@@ -98,14 +98,17 @@ Panel {
       var line = lines[i].replace(/\r$/, "").trim()
       if (line === "") continue
       var head = line.match(/^##\s*(\S+)/)
-      if (head) {
-        section = head[1].toUpperCase()
-        if (section === "KANJI" && !foundKanji)
-          foundKanji = { "char": "", meanings: "", on: "", kun: "", strokes: "", grade: "" }
-        continue
-      }
-      if (section === "KANJI" && foundKanji) {
-        var cols = line.split("\t")
+        if (head) {
+          section = head[1].toUpperCase()
+          continue
+        }
+        if (section === "KANJI") {
+          // The object is minted by the row, not the header: lookup.sh emits
+          // a bare ##KANJI when the char is absent from the kanji table, and
+          // an eagerly created object would render an all-empty card.
+          if (!foundKanji)
+            foundKanji = { "char": "", meanings: "", on: "", kun: "", strokes: "", grade: "" }
+          var cols = line.split("\t")
         var keys = ["char", "meanings", "on", "kun", "strokes", "grade"]
         for (var k = 0; k < keys.length && k < cols.length; k++)
           foundKanji[keys[k]] = cols[k].trim()
@@ -133,9 +136,15 @@ Panel {
   Process {
     id: lookupProc
     property int seq: 0
+    // A superseded lookup is killed, but its own exited event still fires —
+    // after seq has been reassigned to the newer run, so the seq guard alone
+    // would pass it and flash empty results for ~one frame. Consume exactly
+    // one exit per kill: the killed process dies before its replacement can.
+    property bool killed: false
     stdout: StdioCollector { id: outCollector; waitForEnd: true }
     stderr: StdioCollector { id: errCollector; waitForEnd: true }
     onExited: function(exitCode) {
+      if (killed) { killed = false; return }
       if (seq === root.lookupSeq) root.finishLookup(exitCode)
     }
   }
@@ -158,16 +167,30 @@ Panel {
     }
   }
 
+  // Panel sized to its content, the way the stock clock/weather panels size
+  // themselves (fittedContentHeight of the measured stack): with LIMIT 25 the
+  // natural height always fits under the bar, so every returned row renders
+  // whole and nothing is ever cut at the panel's bottom edge. The fitted cap
+  // keeps it bounded on short screens, where the ListView scrolls instead.
+  readonly property real naturalContentHeight: Style.space(14 * 2) // inner Item margins
+    + searchRow.height
+    + (statusLine.visible ? Style.space(8) + statusLine.height : 0)
+    + Style.space(8) + (kanjiCard.visible ? kanjiCard.height + Style.space(8) : 0)
+    + resultsList.rowH * resultsList.count
+
   KeyboardPanel {
     id: panel
     anchorItem: root.anchorItem
     owner: root.barIdentity
     bar: root.bar
     open: root.opened
-    centerOnBar: true
+    // Off: the clock/weather center-cluster widgets center on the bar, but
+    // kotoba sits in the right cluster, so the card must center under the
+    // 辞 button (cardOrigin's per-anchor branch) instead of mid-screen.
+    centerOnBar: false
     focusTarget: searchField
     contentWidth: panel.fittedContentWidth(Style.space(520))
-    contentHeight: panel.fittedContentHeight(Style.space(420))
+    contentHeight: panel.fittedContentHeight(Math.max(Style.space(120), root.naturalContentHeight))
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -280,6 +303,9 @@ Panel {
 
         ListView {
           id: resultsList
+          // Uniform whole-pixel row height, measured so naturalContentHeight
+          // can size the panel to fit every row without a partial one.
+          readonly property real rowH: count > 0 && itemAtIndex(0) ? itemAtIndex(0).height : 0
           anchors { top: kanjiCard.bottom
                     topMargin: kanjiCard.visible ? Style.space(8) : 0
                     bottom: parent.bottom; left: parent.left; right: parent.right }
@@ -290,7 +316,7 @@ Panel {
           delegate: Text {
             required property var modelData
             width: resultsList.width
-            height: implicitHeight + Style.space(6)
+            height: Math.ceil(implicitHeight) + Style.space(6)
             verticalAlignment: Text.AlignVCenter
             text: modelData.term
               + (modelData.reading !== "" ? " 【" + modelData.reading + "】" : "")

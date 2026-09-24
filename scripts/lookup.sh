@@ -16,6 +16,12 @@ DB="$HOME/.local/share/kotoba/jmdict.db"
 
 # SQL string literal: escape single quotes (' -> '')
 Q=${1//\'/\'\'}
+# Same literal for LIKE patterns, with the LIKE wildcards \, % and _ escaped
+# so they match literally; the matching LIKE clauses carry ESCAPE '\'.
+L=${1//\\/\\\\}
+L=${L//%/\\%}
+L=${L//_/\\_}
+L=${L//\'/\'\'}
 
 # Single CJK ideograph detection (bash, not SQL). Needs a UTF-8 locale.
 is_single_kanji=""
@@ -42,9 +48,9 @@ sqlite3 -batch -noheader -separator $'\t' "$DB" \
   "SELECT COALESCE(NULLIF(kanji, ''), reading), reading,
           replace(replace(glosses, char(10), ' '), char(9), ' ')
    FROM words
-   WHERE kanji LIKE '%${Q}%' OR reading LIKE '%${Q}%'
-   ORDER BY (';' || kanji || ';' LIKE '%;${Q};%') DESC,
-            (';' || reading || ';' LIKE '%;${Q};%') DESC, length(kanji)
+   WHERE kanji LIKE '%${L}%' ESCAPE '\\' OR reading LIKE '%${L}%' ESCAPE '\\'
+   ORDER BY (';' || kanji || ';' LIKE '%;${L};%' ESCAPE '\\') DESC,
+            (';' || reading || ';' LIKE '%;${L};%' ESCAPE '\\') DESC, length(kanji)
    LIMIT 25;"
 
 exit 0
