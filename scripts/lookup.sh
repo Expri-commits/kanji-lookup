@@ -44,13 +44,31 @@ if [[ -n $is_single_kanji ]]; then
   echo "##WORDS"
 fi
 
-sqlite3 -batch -noheader -separator $'\t' "$DB" \
+words=$(sqlite3 -batch -noheader -separator $'\t' "$DB" \
   "SELECT COALESCE(NULLIF(kanji, ''), reading), reading,
           replace(replace(glosses, char(10), ' '), char(9), ' ')
    FROM words
    WHERE kanji LIKE '%${L}%' ESCAPE '\\' OR reading LIKE '%${L}%' ESCAPE '\\'
    ORDER BY (';' || kanji || ';' LIKE '%;${L};%' ESCAPE '\\') DESC,
             (';' || reading || ';' LIKE '%;${L};%' ESCAPE '\\') DESC, length(kanji)
-   LIMIT 25;"
+   LIMIT 25;")
+
+# No exact match and the query is long: OCR'd sentence. Find dictionary words
+# embedded anywhere in it (single chars excluded — the ##KANJI card covers those).
+# ponytail: substring scan, not tokenization — misses conjugated/dictionary-form
+# mismatches (食べて won't find 食べる); upgrade path is MeCab/sudachi if it annoys.
+if [[ -z $words && ${#1} -gt 4 ]]; then
+  words=$(sqlite3 -batch -noheader -separator $'\t' "$DB" \
+    "SELECT COALESCE(NULLIF(kanji, ''), reading), reading,
+            replace(replace(glosses, char(10), ' '), char(9), ' ')
+     FROM words
+     WHERE length(substr(kanji, 1, instr(kanji || ';', ';') - 1)) >= 2
+       AND (instr('${Q}', kanji) > 0
+            OR instr('${Q}', substr(reading, 1, instr(reading || ';', ';') - 1)) > 0)
+     ORDER BY length(substr(kanji, 1, instr(kanji || ';', ';') - 1)) DESC
+     LIMIT 25;")
+fi
+
+[[ -n $words ]] && printf '%s\n' "$words"
 
 exit 0
