@@ -18,6 +18,9 @@ cleanup_freeze() {
   if [[ -n ${PID:-} ]]; then
     kill "$PID" 2>/dev/null || true
   fi
+  if [[ -n ${WATCHER:-} ]]; then
+    kill "$WATCHER" 2>/dev/null || true
+  fi
 }
 
 LANGS=${KOTOBA_OCR_LANGS:-jpn+jpn_vert}
@@ -63,8 +66,14 @@ main() {
     hyprpicker -r -z >/dev/null 2>&1 &
     PID=$!
     sleep .1
+    # One Escape must bail everything: the freeze layer eats the first Esc and
+    # hyprpicker dies, so watch it and kill slurp the moment it goes.
+    ( while kill -0 "$PID" 2>/dev/null; do sleep 0.05; done
+      pkill -x slurp 2>/dev/null ) &
+    WATCHER=$!
     local selection
     selection=$(slurp 2>/dev/null) || true
+    kill "$WATCHER" 2>/dev/null || true # before any later slurp could exist
     if [[ -z $selection ]]; then
       exit 0 # user cancelled the region
     fi
