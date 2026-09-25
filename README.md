@@ -1,8 +1,8 @@
 # Kanji Lookup
 
-An offline Japanese dictionary for the Omarchy bar, built from JMdict and
-KANJIDIC2. Type a word, look up selected text, or capture kanji straight off
-the screen with OCR.
+Select Japanese text, copy it, or capture it off the screen with OCR, and the
+reading and meaning come up immediately. An offline dictionary for the Omarchy
+bar, built from JMdict and KANJIDIC2.
 
 The goal is a quick answer: look a word up and get back to what you were
 reading. This is not a study tool and will not become one; it does not teach
