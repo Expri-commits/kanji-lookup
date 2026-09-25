@@ -102,14 +102,6 @@ def word_object(row, query, resolver):
     }
 
 
-def exact_rank(row, query):
-    if query in alternatives(row["kanji"]):
-        return (0, row["id"])
-    if query in alternatives(row["reading"]):
-        return (1, row["id"])
-    return (2, row["id"])
-
-
 def find_exact(con, query):
     rows = con.execute(
         """SELECT id, kanji, reading, glosses FROM words
@@ -120,8 +112,10 @@ def find_exact(con, query):
            LIMIT ?""",
         (query, query, query, CANDIDATE_LIMIT),
     ).fetchall()
-    rows = [row for row in rows if exact_rank(row, query)[0] < 2]
-    return min(rows, key=lambda row: exact_rank(row, query)) if rows else None
+    # The WHERE clause guarantees every row is a whole-alternative match and the
+    # ORDER BY puts kanji matches before reading matches, then id — rows[0]
+    # is the best exact match.
+    return rows[0] if rows else None
 
 
 def direct_rank(row, query):

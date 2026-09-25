@@ -31,15 +31,7 @@ database to replace definitions that were previously limited to 400 characters.
 
 ## Look up
 
-    ./scripts/lookup.sh QUERY        # e.g. QUERY = 大学
-
-Word results print as `kanji<TAB>reading<TAB>glosses` (max 25 rows). If QUERY
-is a single kanji, output starts with `##KANJI`, one
-`char<TAB>meanings<TAB>on<TAB>kun<TAB>strokes<TAB>grade` row, then `##WORDS`
-before the word rows. Exit 0 with no output when nothing matches; prints
-`DB_MISSING` and exits 2 when the database has not been built yet.
-
-The panel uses the richer JSON interface (Python 3 standard library only):
+The CLI and the panel share one JSON interface (Python 3 standard library only):
 
     python3 scripts/lookup-json.py 敬語
     python3 scripts/lookup-json.py 敬語 --entry-id ENTRY_ID
