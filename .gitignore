@@ -1,3 +1,4 @@
 *.db
 *.zip
 data/
+__pycache__/
