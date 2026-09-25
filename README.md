@@ -45,12 +45,14 @@ exists, the panel says so and points to the build script.
 ## Use
 
 Click the 辞 button in the bar. The label is the kanji 辞, read ji, as in
-辞書 (dictionary); it is an uncommon kanji. You can bind a key instead; the
-plugin does not assign one itself. A keybind can call `smartTrigger`, which looks up the freshest
+辞書 (dictionary). You can bind a key as well; Omarchy keeps keybinds in
+your own config, so a plugin cannot install one for you. A keybind can call
+`smartTrigger`, which looks up the freshest
 selection when one changed within the last 5 seconds and otherwise opens the
-panel and starts a region capture:
+panel and starts a region capture. Super+Shift+J is the suggested bind; any
+key works:
 
-    o.bind("SUPER + SHIFT + K", "Kanji lookup", [[
+    o.bind("SUPER + SHIFT + J", "Kanji lookup", [[
       P="$(timeout 0.5s wl-paste --type text --primary 2>/dev/null)"; \
       C="$(timeout 0.5s wl-paste --type text 2>/dev/null)"; \
       omarchy-shell io.github.expri-commits.kanji-lookup smartTrigger "$P" "$C"
