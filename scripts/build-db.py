@@ -91,7 +91,7 @@ def parse_jmdict(zip_path):
             gloss = ", ".join(g["text"] for g in s.get("gloss", []))
             if gloss:
                 senses.append(gloss)
-        rows.append((int(w["id"]), kanji, reading, " | ".join(senses)[:400]))
+        rows.append((int(w["id"]), kanji, reading, " | ".join(senses)))
     return rows
 
 
@@ -121,8 +121,9 @@ def main():
     download(kanjidic_url, kanjidic_zip)
 
     # Re-parsing the zips and rebuilding takes minutes: skip when the DB
-    # already reflects both cached zips (delete the DB or touch a zip to force).
-    if (os.path.exists(DB) and os.path.getmtime(DB) >= os.path.getmtime(jmdict_zip)
+    # already reflects both cached zips and this builder version.
+    if (os.path.exists(DB) and os.path.getmtime(DB) >= os.path.getmtime(__file__)
+            and os.path.getmtime(DB) >= os.path.getmtime(jmdict_zip)
             and os.path.getmtime(DB) >= os.path.getmtime(kanjidic_zip)):
         print(f"DB up to date ({time.strftime('%Y-%m-%d', time.localtime(os.path.getmtime(DB)))});"
               " delete it or touch a zip to force rebuild")

@@ -48,11 +48,11 @@ class ParseJmdictTests(unittest.TestCase):
         ]))
         self.assertEqual(rows, [(2, "", "", "meaning")])
 
-    def test_glosses_are_truncated_to_400_chars(self):
+    def test_full_glosses_are_preserved_for_focused_word_details(self):
         rows = build_db.parse_jmdict(self.zip_with([
             {"id": 3, "sense": [{"gloss": [{"text": "x" * 500}]}]},
         ]))
-        self.assertEqual(rows, [(3, "", "", "x" * 400)])
+        self.assertEqual(rows, [(3, "", "", "x" * 500)])
 
     def test_empty_dictionary_yields_no_rows(self):
         self.assertEqual(build_db.parse_jmdict(self.zip_with([])), [])
