@@ -4,15 +4,15 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
-// Kotoba's popup: a search field over the local JMdict/KANJIDIC2 database,
+// Kanji Lookup's popup: a search field over the local JMdict/KANJIDIC2 database,
 // plus a 撮 button that OCRs kanji off the screen into the field. Lookups
 // and capture shell out to the plugin's own scripts/ with the query as a
 // single argv element; a new lookup kills the running one and stale replies
 // are dropped by sequence number.
 Panel {
   id: root
-  moduleName: "io.github.expri-commits.kotoba"
-  ipcTarget: "io.github.expri-commits.kotoba"
+  moduleName: "io.github.expri-commits.kanji-lookup"
+  ipcTarget: "io.github.expri-commits.kanji-lookup"
   manageIpc: false // IPC lives on the bar widget, mirroring the clock
 
   property var anchorItem: null
@@ -68,6 +68,19 @@ Panel {
     root.lookup(query)
   }
 
+  // Keybind routing: `query` (read by the keybind from the selection) is only
+  // trusted when a selection/clipboard change happened just now — Wayland
+  // keeps the old content forever, so without a recency window a stale
+  // selection would always win and the OCR path could never run.
+  readonly property real selectionFreshMs: 5000
+  property real lastSelectionAt: 0
+
+  function smartTrigger(query) {
+    var q = String(query || "").trim()
+    if (Date.now() - lastSelectionAt < selectionFreshMs && q !== "") searchFor(q)
+    else capture()
+  }
+
   function finishLookup(exitCode) {
     var out = String(outCollector.text || "")
     var err = String(errCollector.text || "").trim()
@@ -98,17 +111,17 @@ Panel {
       var line = lines[i].replace(/\r$/, "").trim()
       if (line === "") continue
       var head = line.match(/^##\s*(\S+)/)
-        if (head) {
-          section = head[1].toUpperCase()
-          continue
-        }
-        if (section === "KANJI") {
-          // The object is minted by the row, not the header: lookup.sh emits
-          // a bare ##KANJI when the char is absent from the kanji table, and
-          // an eagerly created object would render an all-empty card.
-          if (!foundKanji)
-            foundKanji = { "char": "", meanings: "", on: "", kun: "", strokes: "", grade: "" }
-          var cols = line.split("\t")
+      if (head) {
+        section = head[1].toUpperCase()
+        continue
+      }
+      if (section === "KANJI") {
+        // The object is minted by the row, not the header: lookup.sh emits
+        // a bare ##KANJI when the char is absent from the kanji table, and
+        // an eagerly created object would render an all-empty card.
+        if (!foundKanji)
+          foundKanji = { "char": "", meanings: "", on: "", kun: "", strokes: "", grade: "" }
+        var cols = line.split("\t")
         var keys = ["char", "meanings", "on", "kun", "strokes", "grade"]
         for (var k = 0; k < keys.length && k < cols.length; k++)
           foundKanji[keys[k]] = cols[k].trim()
@@ -170,6 +183,32 @@ Panel {
     }
   }
 
+  // Timestamp every primary-selection / clipboard change for smartTrigger;
+  // content is read fresh by the keybind at press time, so only the time
+  // matters. --watch fires on changes only, never on initial state.
+  Process {
+    id: primaryWatch
+    running: true
+    command: ["wl-paste", "--primary", "--watch", "cat"]
+    stdout: SplitParser { onRead: root.lastSelectionAt = Date.now() }
+    onExited: watchRetry.start()
+  }
+
+  Process {
+    id: clipboardWatch
+    running: true
+    command: ["wl-paste", "--watch", "cat"]
+    stdout: SplitParser { onRead: root.lastSelectionAt = Date.now() }
+    onExited: watchRetry.start()
+  }
+
+  // A dead watcher means "always cold" (every press captures) — retry slowly.
+  Timer {
+    id: watchRetry
+    interval: 5000
+    onTriggered: { primaryWatch.running = true; clipboardWatch.running = true }
+  }
+
   // Panel sized to its content, the way the stock clock/weather panels size
   // themselves (fittedContentHeight of the measured stack): with LIMIT 25 the
   // natural height always fits under the bar, so every returned row renders
@@ -188,7 +227,7 @@ Panel {
     bar: root.bar
     open: root.opened
     // Off: the clock/weather center-cluster widgets center on the bar, but
-    // kotoba sits in the right cluster, so the card must center under the
+    // the widget sits in the right cluster, so the card must center under the
     // 辞 button (cardOrigin's per-anchor branch) instead of mid-screen.
     centerOnBar: false
     focusTarget: searchField

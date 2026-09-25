@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# kotoba offline dictionary lookup — prints TSV for the QML panel.
+# Kanji Lookup offline dictionary — prints TSV for the QML panel.
 # Usage: lookup.sh QUERY
 #   word rows: kanji<TAB>reading<TAB>glosses              (max 25)
 #   single CJK ideograph query adds:
@@ -9,7 +9,7 @@
 # Empty result: no output, exit 0. Missing DB: "DB_MISSING", exit 2.
 set -u
 
-DB="$HOME/.local/share/kotoba/jmdict.db"
+DB="${KANJI_LOOKUP_DB:-$HOME/.local/share/kanji-lookup/jmdict.db}"
 [ -f "$DB" ] || { echo "DB_MISSING"; exit 2; }
 [ $# -eq 1 ] || { echo "usage: lookup.sh QUERY" >&2; exit 1; }
 [ -n "$1" ] || exit 0
@@ -44,9 +44,12 @@ if [[ -n $is_single_kanji ]]; then
   echo "##WORDS"
 fi
 
+# Word-row column list, shared by both queries below.
+COLS="COALESCE(NULLIF(kanji, ''), reading), reading,
+replace(replace(glosses, char(10), ' '), char(9), ' ')"
+
 words=$(sqlite3 -batch -noheader -separator $'\t' "$DB" \
-  "SELECT COALESCE(NULLIF(kanji, ''), reading), reading,
-          replace(replace(glosses, char(10), ' '), char(9), ' ')
+  "SELECT $COLS
    FROM words
    WHERE kanji LIKE '%${L}%' ESCAPE '\\' OR reading LIKE '%${L}%' ESCAPE '\\'
    ORDER BY (';' || kanji || ';' LIKE '%;${L};%' ESCAPE '\\') DESC,
@@ -59,8 +62,7 @@ words=$(sqlite3 -batch -noheader -separator $'\t' "$DB" \
 # mismatches (食べて won't find 食べる); upgrade path is MeCab/sudachi if it annoys.
 if [[ -z $words && ${#1} -gt 4 ]]; then
   words=$(sqlite3 -batch -noheader -separator $'\t' "$DB" \
-    "SELECT COALESCE(NULLIF(kanji, ''), reading), reading,
-            replace(replace(glosses, char(10), ' '), char(9), ' ')
+    "SELECT $COLS
      FROM words
      WHERE length(substr(kanji, 1, instr(kanji || ';', ';') - 1)) >= 2
        AND (instr('${Q}', kanji) > 0

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Build the kotoba offline dictionary DB from jmdict-simplified releases.
+"""Build the Kanji Lookup offline dictionary DB from jmdict-simplified releases.
 
 Downloads the latest jmdict-eng (English JMdict) and kanjidic2-en (KANJIDIC2)
-JSON zips into ~/.local/share/kotoba/src/ (skipped if already present), then
-writes a SQLite DB to ~/.local/share/kotoba/jmdict.db with two tables:
+JSON zips into ~/.local/share/kanji-lookup/src/ (skipped if already present), then
+writes a SQLite DB to ~/.local/share/kanji-lookup/jmdict.db with two tables:
 
     words(id INTEGER PRIMARY KEY, kanji TEXT, reading TEXT, glosses TEXT)
     kanji(char TEXT PRIMARY KEY, meanings TEXT, "on" TEXT, kun TEXT,
@@ -17,11 +17,12 @@ import os
 import sqlite3
 import subprocess
 import sys
+import time
 import urllib.parse
 import zipfile
 
 REPO = "scriptin/jmdict-simplified"
-SHARE = os.path.expanduser("~/.local/share/kotoba")
+SHARE = os.path.expanduser("~/.local/share/kanji-lookup")
 SRC = os.path.join(SHARE, "src")
 DB = os.path.join(SHARE, "jmdict.db")
 
@@ -39,7 +40,7 @@ def asset_urls():
             return urls
         raise RuntimeError("gh returned no assets")
     except Exception as exc:
-        print(f"kotoba: gh failed ({exc}); falling back to curl", file=sys.stderr)
+        print(f"kanji-lookup: gh failed ({exc}); falling back to curl", file=sys.stderr)
         out = subprocess.run(
             ["curl", "-fsSL", f"https://api.github.com/repos/{REPO}/releases/latest"],
             capture_output=True, text=True, timeout=60, check=True,
@@ -52,7 +53,7 @@ def pick(urls, pred, what):
         name = url.rsplit("/", 1)[-1].lower()
         if pred(name):
             return url
-    sys.exit(f"kotoba: no {what} asset found in latest release")
+    sys.exit(f"kanji-lookup: no {what} asset found in latest release")
 
 
 def is_jmdict(name):
@@ -69,9 +70,9 @@ def is_kanjidic2(name):
 
 def download(url, dest):
     if os.path.exists(dest):
-        print(f"kotoba: {os.path.basename(dest)} already downloaded, skipping")
+        print(f"kanji-lookup: {os.path.basename(dest)} already downloaded, skipping")
         return
-    print(f"kotoba: downloading {url}")
+    print(f"kanji-lookup: downloading {url}")
     subprocess.run(["curl", "-fsSL", "-o", dest, url], check=True)
 
 
@@ -119,6 +120,14 @@ def main():
     download(jmdict_url, jmdict_zip)
     download(kanjidic_url, kanjidic_zip)
 
+    # Re-parsing the zips and rebuilding takes minutes: skip when the DB
+    # already reflects both cached zips (delete the DB or touch a zip to force).
+    if (os.path.exists(DB) and os.path.getmtime(DB) >= os.path.getmtime(jmdict_zip)
+            and os.path.getmtime(DB) >= os.path.getmtime(kanjidic_zip)):
+        print(f"DB up to date ({time.strftime('%Y-%m-%d', time.localtime(os.path.getmtime(DB)))});"
+              " delete it or touch a zip to force rebuild")
+        return
+
     words = parse_jmdict(jmdict_zip)
     kanji = parse_kanjidic2(kanjidic_zip)
 
@@ -140,7 +149,7 @@ def main():
     con.close()
     print(f"words: {wc} rows")
     print(f"kanji: {kc} rows")
-    print(f"kotoba: wrote {DB}")
+    print(f"kanji-lookup: wrote {DB}")
 
 
 if __name__ == "__main__":

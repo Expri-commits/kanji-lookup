@@ -4,11 +4,11 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
-// Kotoba's bar button: the 辞 glyph opens the dictionary popup. Panel
+// Kanji Lookup's bar button: the 辞 glyph opens the dictionary popup. Panel
 // lifecycle, summon routing, and IPC follow the clock's shape.
 BarWidget {
   id: root
-  moduleName: "io.github.expri-commits.kotoba"
+  moduleName: "io.github.expri-commits.kanji-lookup"
 
   function injectPanel() {
     var target = panelLoader.item
@@ -62,7 +62,7 @@ BarWidget {
   }
 
   IpcHandler {
-    target: "io.github.expri-commits.kotoba"
+    target: "io.github.expri-commits.kanji-lookup"
 
     function open(): void { root.open() }
     function close(): void { root.close() }
@@ -75,6 +75,14 @@ BarWidget {
       root.open()
       if (panelLoader.item) panelLoader.item.searchFor(query)
     }
+
+    // Keybind entry: look up `query` only when a selection/clipboard change
+    // happened within the recency window (the user just selected or copied
+    // it); otherwise open the panel and start the screen-OCR capture.
+    function smartTrigger(query: string): void {
+      root.open()
+      if (panelLoader.item) panelLoader.item.smartTrigger(query)
+    }
   }
 
   WidgetButton {
@@ -82,7 +90,7 @@ BarWidget {
     anchors.fill: parent
     bar: root.bar
     text: "辞"
-    tooltipText: "Kotoba — Japanese dictionary"
+    tooltipText: "Kanji Lookup — Japanese dictionary"
 
     onPressed: function(b) {
       if (b === Qt.LeftButton) root.togglePanel()
