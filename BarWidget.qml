@@ -76,12 +76,11 @@ BarWidget {
       if (panelLoader.item) panelLoader.item.searchFor(query)
     }
 
-    // Keybind entry: look up `query` only when a selection/clipboard change
-    // happened within the recency window (the user just selected or copied
-    // it); otherwise open the panel and start the screen-OCR capture.
-    function smartTrigger(query: string): void {
+    // Keybind entry: look up the freshest recently changed text source;
+    // otherwise open the panel and start the screen-OCR capture.
+    function smartTrigger(primaryQuery: string, clipboardQuery: string): void {
       root.open()
-      if (panelLoader.item) panelLoader.item.smartTrigger(query)
+      if (panelLoader.item) panelLoader.item.smartTrigger(primaryQuery, clipboardQuery)
     }
   }
 

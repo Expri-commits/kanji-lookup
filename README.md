@@ -1,8 +1,22 @@
 # Kanji Lookup
 
-Offline Japanese dictionary data layer for an Omarchy plugin: a SQLite DB
-built from JMdict (English) and KANJIDIC2, plus a tiny lookup CLI that a QML
-panel parses as TSV.
+An offline Japanese dictionary for the Omarchy bar, built from JMdict (English)
+and KANJIDIC2. Look up selected text, type a word, or capture it from the screen.
+
+The panel shows the word's constituent kanji in a compact horizontal strip,
+then emphasizes the focused word, its reading, and its full definition. Smaller
+related entries underneath are clickable: selecting one makes it the focused
+word and puts the previous word first in the related list. New searches reset
+this browsing context. Partial searches and captured sentences show matching
+entries to choose from rather than presenting a partial match as an exact word.
+Kanji cards are clickable too. Use Tab to move through cards and entries,
+Enter or Space to open one, and Escape to close the panel. Down from the search
+field focuses the first related entry; Up and Down move through that list.
+
+Kanji cards include meanings, on/kun readings, and estimated JLPT levels when
+available. Hover for full details when a card's text is shortened. Levels come
+from community study lists, not an official modern JLPT syllabus; see
+[data sources and attribution](resources/README.md). Missing levels are omitted.
 
 ## Build the DB
 
@@ -12,6 +26,8 @@ Fetches the latest `scriptin/jmdict-simplified` release (jmdict-eng +
 kanjidic2-en JSON zips) into `~/.local/share/kanji-lookup/src/` (re-runnable:
 already-downloaded zips are skipped) and writes
 `~/.local/share/kanji-lookup/jmdict.db`.
+Definitions are stored in full. Run the builder again after upgrading an older
+database to replace definitions that were previously limited to 400 characters.
 
 ## Look up
 
@@ -22,6 +38,18 @@ is a single kanji, output starts with `##KANJI`, one
 `char<TAB>meanings<TAB>on<TAB>kun<TAB>strokes<TAB>grade` row, then `##WORDS`
 before the word rows. Exit 0 with no output when nothing matches; prints
 `DB_MISSING` and exits 2 when the database has not been built yet.
+
+The panel uses the richer JSON interface (Python 3 standard library only):
+
+    python3 scripts/lookup-json.py 敬語
+    python3 scripts/lookup-json.py 敬語 --entry-id ENTRY_ID
+
+It returns the focused entry, constituent kanji, and related entries with stable
+JMdict IDs. The optional entry ID selects a particular dictionary entry even
+when several entries have the same spelling. Related words are found by literal
+text matches and shared kanji; sentence fallback finds embedded dictionary
+words, without morphological analysis. Lookups and the bundled JLPT estimates
+work entirely offline once the dictionary has been built.
 
 ## Plugin
 
@@ -40,17 +68,45 @@ bar button or over IPC — bar widgets are reached directly, not via
 
     omarchy-shell io.github.expri-commits.kanji-lookup lookup "$(wl-paste)"
 
-A keybind can call `smartTrigger QUERY` instead: when the primary selection
-or clipboard changed within the last 5 seconds, QUERY is looked up directly;
-otherwise the panel opens and a region-OCR capture starts immediately (撮
+A keybind can call `smartTrigger PRIMARY CLIPBOARD` instead: it looks up the
+freshest text source when that source changed within the last 5 seconds;
+otherwise the panel opens and a region-OCR capture starts immediately (Capture
 always forces OCR). Wayland keeps old selection content forever, so recency —
-not emptiness — is what distinguishes a fresh pick. Apps that never publish a
-primary selection (many Electron ones): Ctrl+C first; the clipboard watcher
-timestamps that change too.
+not emptiness — distinguishes a fresh pick. Apps that do not publish a primary
+selection may still work after Ctrl+C, through the regular clipboard. The
+keybind should read both values as text:
 
-    omarchy-shell io.github.expri-commits.kanji-lookup smartTrigger "$(wl-paste --primary)"
+    P="$(timeout 0.5s wl-paste --type text --primary 2>/dev/null)"
+    C="$(timeout 0.5s wl-paste --type text 2>/dev/null)"
+    omarchy-shell io.github.expri-commits.kanji-lookup smartTrigger "$P" "$C"
 
-The 撮 button in the panel OCRs kanji off the screen into the search field;
+The plugin does not assign a keybind. The panel's shortcut hint reads
+the current Hyprland bindings when the panel starts or opens, so it follows
+custom keybinds automatically. For example, add this in
+`~/.config/hypr/bindings.lua` to bind Super+Shift+K:
+
+    o.bind("SUPER + SHIFT + K", "Kanji lookup", [[
+      P="$(timeout 0.5s wl-paste --type text --primary 2>/dev/null)"; \
+      C="$(timeout 0.5s wl-paste --type text 2>/dev/null)"; \
+      omarchy-shell io.github.expri-commits.kanji-lookup smartTrigger "$P" "$C"
+    ]])
+
+The hint recognizes the plugin's `smartTrigger`, `lookup`, `open`, `show`, or
+`toggle` binding, preferring `smartTrigger`. It skips mouse bindings, numeric
+keycodes, non-empty submaps, and modifier bits it cannot display; named keys
+such as F8 and Return are shown as readable labels. Lua callbacks are
+recognized by the exact description `Kanji lookup`; arbitrary shell wrappers
+may need a display-only `shortcutHint` override on their existing bar entry in
+`~/.config/omarchy/shell.json`:
+
+```json
+{ "id": "io.github.expri-commits.kanji-lookup", "shortcutHint": "Super+Shift+K" }
+```
+
+This changes only the displayed hint; it does not create or change a binding.
+If detection fails and no override is set, the footer says "No shortcut detected".
+
+The Capture button in the panel OCRs kanji off the screen into the search field;
 it needs the Japanese tesseract data:
 
     omarchy pkg add tesseract-data-jpn tesseract-data-jpn_vert
