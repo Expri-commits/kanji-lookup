@@ -47,14 +47,23 @@ work entirely offline once the dictionary has been built.
 
 Bar widget + popup panel for the Omarchy shell. Install and enable:
 
+    omarchy plugin add https://github.com/Expri-commits/kanji-lookup
+    omarchy plugin enable io.github.expri-commits.kanji-lookup
+    omarchy bar move io.github.expri-commits.kanji-lookup --section right
+
+Then build the dictionary DB as shown above. To install from a local
+checkout instead:
+
     rsync -a --exclude .git --exclude '*.db' ~/Documents/Projects/kanji-lookup/ \
       ~/.config/omarchy/plugins/io.github.expri-commits.kanji-lookup/
     omarchy plugin validate ~/.config/omarchy/plugins/io.github.expri-commits.kanji-lookup
     omarchy-shell shell rescanPlugins
-    omarchy plugin enable io.github.expri-commits.kanji-lookup
-    omarchy bar move io.github.expri-commits.kanji-lookup --section right
 
-(or `omarchy plugin add <repo-url>` once published.) Lookups work from the
+Remove:
+
+    omarchy plugin remove io.github.expri-commits.kanji-lookup --yes
+
+Lookups work from the
 bar button or over IPC — bar widgets are reached directly, not via
 `shell call`:
 
@@ -129,5 +138,5 @@ they skip if these are unavailable and never install dependencies.
 
 ## License
 
-JMdict and KANJIDIC2 are © EDRDG, licensed CC BY-SA 4.0 — see LICENSE-EDRDG
-(https://www.edrdg.org/edrdg/licence.html).
+Plugin code is MIT; see LICENSE. JMdict and KANJIDIC2 are © EDRDG, licensed
+CC BY-SA 4.0; see LICENSE-EDRDG (https://www.edrdg.org/edrdg/licence.html).
