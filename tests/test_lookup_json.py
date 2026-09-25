@@ -34,9 +34,14 @@ WORDS = [
     (18, "読_本", "よみほん", "literal underscore"),
     (19, "詠む", "ヨム;よむ", "to recite"),
     (20, "使丁", "してい", "reading-only sentence distractor"),
+    (21, "一生懸命", "いっしょうけんめい", "with all one's might"),
+    (22, "ラーメン", "らーめん", "ramen"),
+    (23, "コーヒー豆", "コーヒーまめ", "coffee beans; the ー is legitimate"),
+    (24, "一ヶ月", "いっかげつ", "one month; the 一 is legitimate"),
 ]
 KANJI = [
     ("読", "read;reading", "ドク", "よ.む", 14, None),
+    ("一", "one", "イチ", "ひと", 1, 1),
     ("桜", "cherry blossom", "オウ", "さくら", 10, 1),
     ("日", "day", "ニチ", "ひ", 4, 1),
     ("本", "book", "ホン", "もと", 5, 1),
@@ -152,6 +157,26 @@ class JsonLookupTests(unittest.TestCase):
         self.assertEqual(supplementary["kanji"][0]["meanings"],
                          "first CJK extension B")
         self.assertTrue(supplementary["kanji"][1]["unavailable"])
+
+    def test_ocr_swaps_kanji_one_and_prolonged_sound_mark(self):
+        kanji_one = self.result("ー生懸命")
+        self.assertEqual(kanji_one["query"], "ー生懸命")
+        self.assertEqual(kanji_one["matchKind"], "exact")
+        self.assertEqual(kanji_one["main"]["term"], "一生懸命")
+        self.assertEqual([k["char"] for k in kanji_one["kanji"]],
+                         ["一", "生", "懸", "命"])
+        self.assertEqual(kanji_one["kanji"][0]["meanings"], "one")
+        katakana_mark = self.result("ラ一メン")
+        self.assertEqual((katakana_mark["matchKind"], katakana_mark["main"]["term"]),
+                         ("exact", "ラーメン"))
+        legit_mark = self.result("ラーメン")
+        self.assertEqual((legit_mark["matchKind"], legit_mark["main"]["term"]),
+                         ("exact", "ラーメン"))
+        for query in ("コーヒー豆", "一ヶ月"):
+            with self.subTest(query=query):
+                data = self.result(query)
+                self.assertEqual((data["matchKind"], data["main"]["term"]),
+                                 ("exact", query))
 
     def test_embedded_sentence_fallback_uses_longest_words_first(self):
         data = self.result("日本語を勉強しています")

@@ -23,14 +23,33 @@ def alternatives(value):
     return [part for part in (value or "").split(";") if part]
 
 
+def is_ideograph(char):
+    return unicodedata.name(char, "").startswith((
+        "CJK UNIFIED IDEOGRAPH", "CJK COMPATIBILITY IDEOGRAPH"
+    ))
+
+
 def ideographs(text):
     """Distinct defined CJK ideographs, including supplementary extensions."""
-    return list(dict.fromkeys(
-        char for char in text
-        if unicodedata.name(char, "").startswith((
-            "CJK UNIFIED IDEOGRAPH", "CJK COMPATIBILITY IDEOGRAPH"
-        ))
-    ))
+    return list(dict.fromkeys(char for char in text if is_ideograph(char)))
+
+
+def fix_one_vs_prolonged(query):
+    """OCR swaps kanji 一 and the look-alike prolonged-sound mark ー (ー生懸命,
+    ラ一メン). Context-blind — legitimate words keep them adjacent too (コーヒー豆,
+    一ヶ月) — so only trust the variant when it matches the dictionary and the
+    original does not."""
+    out = []
+    for i, char in enumerate(query):
+        near = [query[j] for j in (i - 1, i + 1) if 0 <= j < len(query)]
+        if char == "ー" and any(is_ideograph(c) for c in near):
+            out.append("一")
+        elif char == "一" and any(
+                unicodedata.name(c, "").startswith("KATAKANA") for c in near):
+            out.append("ー")
+        else:
+            out.append(char)
+    return "".join(out)
 
 
 def like_literal(text):
@@ -225,6 +244,13 @@ def lookup(con, query, entry_id=None):
             return result
     else:
         main_row = find_exact(con, query)
+        if main_row is None:
+            variant = fix_one_vs_prolonged(query)
+            if variant != query:
+                candidate = find_exact(con, variant)
+                if candidate is not None:
+                    query = variant
+                    main_row = candidate
 
     if main_row is not None:
         main = word_object(main_row, query, resolver)
