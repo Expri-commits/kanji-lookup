@@ -44,8 +44,9 @@ exists, the panel says so and points to the build script.
 
 ## Use
 
-Click the 辞 button in the bar, or bind a key. The plugin does not assign a
-keybind itself. A keybind can call `smartTrigger`, which looks up the freshest
+Click the 辞 button in the bar. The label is the kanji 辞, read ji, as in
+辞書 (dictionary); it is an uncommon kanji. You can bind a key instead; the
+plugin does not assign one itself. A keybind can call `smartTrigger`, which looks up the freshest
 selection when one changed within the last 5 seconds and otherwise opens the
 panel and starts a region capture:
 
