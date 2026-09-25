@@ -22,6 +22,10 @@ import urllib.parse
 import zipfile
 
 REPO = "scriptin/jmdict-simplified"
+# Largest legit asset today is ~12 MB zipped / ~60 MB of JSON; caps exist so a
+# huge or zip-bomb release asset cannot exhaust disk or RAM. Generous headroom.
+MAX_ZIP_BYTES = 256 * 1024 * 1024
+MAX_JSON_BYTES = 1024 * 1024 * 1024
 SHARE = os.path.expanduser("~/.local/share/kanji-lookup")
 SRC = os.path.join(SHARE, "src")
 DB = os.path.join(SHARE, "jmdict.db")
@@ -73,12 +77,24 @@ def download(url, dest):
         print(f"kanji-lookup: {os.path.basename(dest)} already downloaded, skipping")
         return
     print(f"kanji-lookup: downloading {url}")
-    subprocess.run(["curl", "-fsSL", "-o", dest, url], check=True)
+    subprocess.run(["curl", "-fsSL", "--max-filesize", str(MAX_ZIP_BYTES),
+                    "-o", dest, url], check=True)
+    # --max-filesize is a no-op when the server sends no Content-Length.
+    size = os.path.getsize(dest)
+    if size > MAX_ZIP_BYTES:
+        os.remove(dest)
+        sys.exit(f"kanji-lookup: {os.path.basename(dest)} is {size} bytes"
+                 f" (> {MAX_ZIP_BYTES}); refusing to continue")
 
 
 def load_json(zip_path):
     with zipfile.ZipFile(zip_path) as z:
-        return json.loads(z.read(z.namelist()[0]).decode("utf-8"))
+        with z.open(z.namelist()[0]) as f:
+            data = f.read(MAX_JSON_BYTES + 1)
+    if len(data) > MAX_JSON_BYTES:
+        sys.exit(f"kanji-lookup: {os.path.basename(zip_path)} entry unpacks"
+                 f" past {MAX_JSON_BYTES} bytes; refusing to continue")
+    return json.loads(data.decode("utf-8"))
 
 
 def parse_jmdict(zip_path):

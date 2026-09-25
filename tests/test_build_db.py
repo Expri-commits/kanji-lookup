@@ -98,5 +98,31 @@ class ParseKanjidic2Tests(unittest.TestCase):
         self.assertEqual(build_db.parse_kanjidic2(self.zip_with([])), [])
 
 
+class LoadJsonTests(unittest.TestCase):
+    """load_json: reads the first zip entry, but aborts past the size cap
+    instead of decompressing a bomb wholly into memory."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self._saved_cap = build_db.MAX_JSON_BYTES
+        self.addCleanup(lambda: setattr(build_db, "MAX_JSON_BYTES", self._saved_cap))
+
+    def zip_with(self, text):
+        path = Path(self.tmp.name) / "dict.json.zip"
+        with zipfile.ZipFile(path, "w") as z:
+            z.writestr("dict.json", text)
+        return str(path)
+
+    def test_first_entry_parses_as_json(self):
+        self.assertEqual(
+            build_db.load_json(self.zip_with('{"words": []}')), {"words": []})
+
+    def test_entry_unpacking_past_cap_aborts(self):
+        build_db.MAX_JSON_BYTES = 8
+        with self.assertRaises(SystemExit):
+            build_db.load_json(self.zip_with("x" * 100))
+
+
 if __name__ == "__main__":
     unittest.main()
