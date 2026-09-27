@@ -9,9 +9,14 @@ writes a SQLite DB to ~/.local/share/kanji-lookup/jmdict.db with two tables:
     kanji(char TEXT PRIMARY KEY, meanings TEXT, "on" TEXT, kun TEXT,
           strokes INTEGER, grade INTEGER)
 
+Both zips are parsed streaming (iter_entries): the JSON is read in chunks and
+decoded one dictionary entry at a time, so peak memory is one chunk plus one
+entry regardless of how big a release grows.
+
 JMdict and KANJIDIC2 are (c) EDRDG, CC BY-SA 4.0 — see LICENSE-EDRDG.
-Stdlib only: json, sqlite3, subprocess, urllib, zipfile.
+Stdlib only: codecs, json, sqlite3, subprocess, urllib, zipfile.
 """
+import codecs
 import json
 import os
 import sqlite3
@@ -26,6 +31,10 @@ REPO = "scriptin/jmdict-simplified"
 # huge or zip-bomb release asset cannot exhaust disk or RAM. Generous headroom.
 MAX_ZIP_BYTES = 256 * 1024 * 1024
 MAX_JSON_BYTES = 1024 * 1024 * 1024
+# Real entries are a few KB; bounds one buffered element so a single huge
+# value cannot balloon memory even under the JSON cap.
+MAX_ENTRY_BYTES = 16 * 1024 * 1024
+READ_CHUNK = 1 << 16
 SHARE = os.path.expanduser("~/.local/share/kanji-lookup")
 SRC = os.path.join(SHARE, "src")
 DB = os.path.join(SHARE, "jmdict.db")
@@ -87,19 +96,114 @@ def download(url, dest):
                  f" (> {MAX_ZIP_BYTES}); refusing to continue")
 
 
-def load_json(zip_path):
-    with zipfile.ZipFile(zip_path) as z:
-        with z.open(z.namelist()[0]) as f:
-            data = f.read(MAX_JSON_BYTES + 1)
-    if len(data) > MAX_JSON_BYTES:
-        sys.exit(f"kanji-lookup: {os.path.basename(zip_path)} entry unpacks"
-                 f" past {MAX_JSON_BYTES} bytes; refusing to continue")
-    return json.loads(data.decode("utf-8"))
+def iter_entries(zip_path, array_key):
+    """Yield decoded elements of the top-level `array_key` JSON array,
+    streaming: chunked reads, incremental UTF-8 decode, one element at a
+    time, so peak memory stays bounded regardless of entry size."""
+    dec = codecs.getincrementaldecoder("utf-8")()
+    tok = json.JSONDecoder()
+    malformed = (f"kanji-lookup: {os.path.basename(zip_path)} is not valid"
+                 f" JSON; refusing to continue")
+
+    with zipfile.ZipFile(zip_path) as z, z.open(z.namelist()[0]) as f:
+        buf, eof, total = "", False, 0
+
+        def feed():
+            nonlocal buf, eof, total
+            if eof:
+                return False
+            chunk = f.read(READ_CHUNK)
+            total += len(chunk)
+            if total > MAX_JSON_BYTES:
+                sys.exit(f"kanji-lookup: {os.path.basename(zip_path)} entry"
+                         f" unpacks past {MAX_JSON_BYTES} bytes;"
+                         f" refusing to continue")
+            # final=True flushes a multibyte char split across the last chunks
+            buf += dec.decode(chunk) if chunk else dec.decode(b"", final=True)
+            # buf holds only the current value plus at most one chunk tail
+            # (consumed prefixes are sliced off), so this aborts an oversized
+            # element while it accumulates, never after parsing it.
+            if len(buf) > MAX_ENTRY_BYTES:
+                sys.exit(f"kanji-lookup: {os.path.basename(zip_path)} has a"
+                         f" single entry past {MAX_ENTRY_BYTES} bytes;"
+                         f" refusing to continue")
+            eof = not chunk
+            return bool(chunk)
+
+        def skip_ws(i):
+            # raw_decode does not skip leading whitespace; only these four
+            # characters count as JSON whitespace.
+            while True:
+                while i < len(buf) and buf[i] in " \t\n\r":
+                    i += 1
+                if i < len(buf) or not feed():
+                    return i
+
+        def decode(i):
+            # raw_decode at i, feeding more chunks while the value is
+            # truncated: a value ending at the buffer edge is retried ("123"
+            # cut mid-number), and so is one followed by a non-structural
+            # char ("0." cut mid-float parses as the shorter number 0).
+            nonlocal buf
+            while True:
+                try:
+                    value, end = tok.raw_decode(buf, i)
+                except json.JSONDecodeError:
+                    if not feed():
+                        sys.exit(malformed)
+                    continue
+                if (end == len(buf) or buf[end] not in " \t\n\r,]}:") and feed():
+                    continue
+                return value, end
+
+        i = skip_ws(0)
+        if i >= len(buf) or buf[i] != "{":
+            sys.exit(malformed)
+        i = skip_ws(i + 1)
+        while True:
+            if i >= len(buf):
+                sys.exit(malformed)
+            if buf[i] == "}":
+                sys.exit(f"kanji-lookup: {os.path.basename(zip_path)} has no"
+                         f" {array_key!r} array")
+            key, end = decode(i)
+            if not isinstance(key, str):
+                sys.exit(malformed)
+            buf, i = buf[end:], 0
+            i = skip_ws(i)
+            if i >= len(buf) or buf[i] != ":":
+                sys.exit(malformed)
+            i = skip_ws(i + 1)
+            if i >= len(buf):
+                sys.exit(malformed)
+            if key == array_key:
+                if buf[i] != "[":
+                    sys.exit(malformed)
+                i = skip_ws(i + 1)
+                while True:
+                    if i >= len(buf):
+                        sys.exit(malformed)
+                    if buf[i] == "]":
+                        return
+                    elem, end = decode(i)
+                    buf, i = buf[end:], 0
+                    yield elem
+                    i = skip_ws(i)
+                    if i >= len(buf) or buf[i] not in ",]":
+                        sys.exit(malformed)
+                    if buf[i] == ",":
+                        i = skip_ws(i + 1)
+            _, end = decode(i)  # version/languages: tiny, discard
+            buf, i = buf[end:], 0
+            i = skip_ws(i)
+            if i >= len(buf) or buf[i] not in ",}":
+                sys.exit(malformed)
+            if buf[i] == ",":
+                i = skip_ws(i + 1)
 
 
 def parse_jmdict(zip_path):
-    rows = []
-    for w in load_json(zip_path)["words"]:
+    for w in iter_entries(zip_path, "words"):
         kanji = ";".join(k["text"] for k in w.get("kanji", []))
         reading = ";".join(k["text"] for k in w.get("kana", []))
         senses = []
@@ -107,13 +211,11 @@ def parse_jmdict(zip_path):
             gloss = ", ".join(g["text"] for g in s.get("gloss", []))
             if gloss:
                 senses.append(gloss)
-        rows.append((int(w["id"]), kanji, reading, " | ".join(senses)))
-    return rows
+        yield (int(w["id"]), kanji, reading, " | ".join(senses))
 
 
 def parse_kanjidic2(zip_path):
-    rows = []
-    for c in load_json(zip_path)["characters"]:
+    for c in iter_entries(zip_path, "characters"):
         groups = (c.get("readingMeaning") or {}).get("groups", [])
         readings = [r for g in groups for r in g.get("readings", [])]
         on = ";".join(r["value"] for r in readings if r["type"] == "ja_on")
@@ -122,8 +224,7 @@ def parse_kanjidic2(zip_path):
                             for m in g.get("meanings", []) if m.get("lang") == "en")
         misc = c.get("misc", {})
         strokes = (misc.get("strokeCounts") or [None])[0]
-        rows.append((c["literal"], meanings, on, kun, strokes, misc.get("grade")))
-    return rows
+        yield (c["literal"], meanings, on, kun, strokes, misc.get("grade"))
 
 
 def main():
@@ -148,22 +249,32 @@ def main():
     words = parse_jmdict(jmdict_zip)
     kanji = parse_kanjidic2(kanjidic_zip)
 
-    if os.path.exists(DB):
-        os.remove(DB)
-    con = sqlite3.connect(DB)
-    con.executescript(
-        """
-        CREATE TABLE words(id INTEGER PRIMARY KEY, kanji TEXT, reading TEXT, glosses TEXT);
-        CREATE TABLE kanji(char TEXT PRIMARY KEY, meanings TEXT, "on" TEXT, kun TEXT,
-                           strokes INTEGER, grade INTEGER);
-        """
-    )
-    con.executemany("INSERT INTO words VALUES (?,?,?,?)", words)
-    con.executemany('INSERT INTO kanji VALUES (?,?,?,?,?,?)', kanji)
-    con.commit()
-    wc = con.execute("SELECT COUNT(*) FROM words").fetchone()[0]
-    kc = con.execute("SELECT COUNT(*) FROM kanji").fetchone()[0]
+    # Build into a temp path and swap in on success only: the parsers stream
+    # rows lazily, so a parse error would otherwise surface mid-insert, after
+    # the working DB was gone.
+    tmp = DB + ".tmp"
+    if os.path.exists(tmp):
+        os.remove(tmp)
+    con = sqlite3.connect(tmp)
+    try:
+        con.executescript(
+            """
+            CREATE TABLE words(id INTEGER PRIMARY KEY, kanji TEXT, reading TEXT, glosses TEXT);
+            CREATE TABLE kanji(char TEXT PRIMARY KEY, meanings TEXT, "on" TEXT, kun TEXT,
+                               strokes INTEGER, grade INTEGER);
+            """
+        )
+        con.executemany("INSERT INTO words VALUES (?,?,?,?)", words)
+        con.executemany('INSERT INTO kanji VALUES (?,?,?,?,?,?)', kanji)
+        con.commit()
+        wc = con.execute("SELECT COUNT(*) FROM words").fetchone()[0]
+        kc = con.execute("SELECT COUNT(*) FROM kanji").fetchone()[0]
+    except BaseException:
+        con.close()
+        os.remove(tmp)
+        raise
     con.close()
+    os.replace(tmp, DB)
     print(f"words: {wc} rows")
     print(f"kanji: {kc} rows")
     print(f"kanji-lookup: wrote {DB}")
