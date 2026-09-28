@@ -20,19 +20,19 @@ JLPT levels from community study lists (see resources/README.md).
 ## Install
 
     omarchy plugin add https://github.com/Expri-commits/kanji-lookup
-    ~/.config/omarchy/plugins/io.github.expri-commits.kanji-lookup/setup.sh
 
 The installer asks where to place the widget (right is the default) and
-whether to enable it. setup.sh then asks about the dictionaries, the OCR
-data, and the panel shortcut: press Enter to take the default
-(Super+Shift+J) or type your own key. Re-running setup.sh is safe, every
-step skips what is already done. Everything it touches is the plugin data
-directory, the two tesseract packages, and one marked block in
-~/.config/hypr/bindings.lua.
+whether to enable it. Until the dictionaries are built, a notification
+offers to run the setup wizard and the panel opens with a Run setup button;
+both open the wizard in a terminal. You can also start it by hand:
 
-You don't have to remember the setup.sh path. Until the dictionaries exist,
-the bar widget shows a notification that opens the wizard when clicked, and
-the panel opens with a Run setup button.
+    ~/.config/omarchy/plugins/io.github.expri-commits.kanji-lookup/setup.sh
+
+The wizard asks about the dictionaries, the OCR data, and the panel
+shortcut: press Enter to take the default (Super+Shift+J) or type your own
+key. Running it again is safe, every step skips what is already done.
+Everything it touches is the plugin data directory, the two tesseract
+packages, and one marked block in ~/.config/hypr/bindings.lua.
 
 ## First run and the dictionaries
 
@@ -40,10 +40,11 @@ The repository does not ship the dictionary data. The build script downloads
 JMdict and KANJIDIC2 from the canonical jmdict-simplified releases, caches
 the zip files in `~/.local/share/kanji-lookup/src/`, and compiles them into
 one sqlite database (about 19 MB) at `~/.local/share/kanji-lookup/jmdict.db`.
-That download and build is why the first run takes a few minutes; running the
-script again skips the downloads and finishes in under a second. After the
-build, lookups work fully offline and take about 30 ms. Until the database
-exists, the panel says so and offers the Run setup button.
+That download and build is why the first run takes a few minutes; while a
+download runs, the terminal shows its progress, speed, and estimated time
+remaining. Running the script again skips the downloads and finishes in
+under a second. After the build, lookups work fully offline and take about
+30 ms.
 
 ## Use
 
