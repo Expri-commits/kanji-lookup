@@ -8,7 +8,11 @@ The goal is a quick answer: look a word up and get back to what you were
 reading. This is not a study tool and will not become one; it does not teach
 Japanese, and features like Anki integration are out of scope.
 
-![Panel](preview.png)
+
+
+https://github.com/user-attachments/assets/60adb9a9-ca44-4b65-88b9-7246cc08e32d
+
+
 
 The panel shows the kanji that make up the word as small cards, the focused
 word with its reading and full definition, and related entries underneath.
