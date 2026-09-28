@@ -20,16 +20,15 @@ JLPT levels from community study lists (see resources/README.md).
 ## Install
 
     omarchy plugin add https://github.com/Expri-commits/kanji-lookup
-    omarchy plugin enable io.github.expri-commits.kanji-lookup
-    omarchy bar move io.github.expri-commits.kanji-lookup --section right
+    ~/.config/omarchy/plugins/io.github.expri-commits.kanji-lookup/setup.sh
 
-Then build the dictionary once:
-
-    ./scripts/build-db.py
-
-Optional, for the OCR capture button:
-
-    omarchy pkg add tesseract-data-jpn tesseract-data-jpn_vert
+The installer asks where to place the widget (right is the default) and
+whether to enable it. setup.sh then asks about the dictionaries, the OCR
+data, and the panel shortcut: press Enter to take the default
+(Super+Shift+J) or type your own key. Re-running setup.sh is safe, every
+step skips what is already done. Everything it touches is the plugin data
+directory, the two tesseract packages, and one marked block in
+~/.config/hypr/bindings.lua.
 
 ## First run and the dictionaries
 
@@ -40,17 +39,16 @@ one sqlite database (about 19 MB) at `~/.local/share/kanji-lookup/jmdict.db`.
 That download and build is why the first run takes a few minutes; running the
 script again skips the downloads and finishes in under a second. After the
 build, lookups work fully offline and take about 30 ms. Until the database
-exists, the panel says so and points to the build script.
+exists, the panel says so and points to setup.sh.
 
 ## Use
 
 Click the 辞 button in the bar. The label is the kanji 辞, read ji, as in
-辞書 (dictionary). You can bind a key as well; Omarchy keeps keybinds in
-your own config, so a plugin cannot install one for you. A keybind can call
-`smartTrigger`, which looks up the freshest
+辞書 (dictionary). You can bind a key as well; setup.sh offers to add one,
+because Omarchy keeps keybinds in your own config and no plugin installs
+them silently. A keybind can call `smartTrigger`, which looks up the freshest
 selection when one changed within the last 5 seconds and otherwise opens the
-panel and starts a region capture. Super+Shift+J is the suggested bind; any
-key works:
+panel and starts a region capture. To add or change it by hand, any key works:
 
     o.bind("SUPER + SHIFT + J", "Kanji lookup", [[
       P="$(timeout 0.5s wl-paste --type text --primary 2>/dev/null)"; \
@@ -78,6 +76,11 @@ The CLI uses the same lookup as the panel:
 ## Uninstall
 
     omarchy plugin remove io.github.expri-commits.kanji-lookup --yes
+
+If setup.sh added the keybind, also remove the Kanji lookup line from
+~/.config/hypr/bindings.lua. If you installed the OCR data and don't need
+Japanese elsewhere, `omarchy pkg drop tesseract-data-jpn tesseract-data-jpn_vert`
+removes it.
 
 Optionally delete the data directory `~/.local/share/kanji-lookup/`.
 

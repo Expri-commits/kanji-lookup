@@ -172,7 +172,7 @@ Panel {
     var err = String(errCollector.text || "").trim()
     if (out.trim() === "DB_MISSING" || err.indexOf("DB_MISSING") !== -1) {
       if (!request.entryId && !request.previous) root.clearResults()
-      root.statusText = "Run scripts/build-db.py to download JMdict (see README)"
+      root.statusText = "Run setup.sh in the plugin folder to build the dictionary (see README)"
       return
     }
     if (exitCode !== 0) {
