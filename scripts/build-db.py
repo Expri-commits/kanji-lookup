@@ -86,14 +86,20 @@ def download(url, dest):
         print(f"kanji-lookup: {os.path.basename(dest)} already downloaded, skipping")
         return
     print(f"kanji-lookup: downloading {url}")
-    subprocess.run(["curl", "-fsSL", "--max-filesize", str(MAX_ZIP_BYTES),
-                    "-o", dest, url], check=True)
+    # On a terminal curl's own meter shows percent, speed, and time left; -s
+    # would hide it. Silence it everywhere else (pipes, cron, tests). A
+    # .part name keeps an interrupted download from looking complete.
+    quiet = [] if sys.stderr.isatty() else ["-s"]
+    part = dest + ".part"
+    subprocess.run(["curl", "-fSL", *quiet, "--max-filesize", str(MAX_ZIP_BYTES),
+                    "-o", part, url], check=True)
     # --max-filesize is a no-op when the server sends no Content-Length.
-    size = os.path.getsize(dest)
+    size = os.path.getsize(part)
     if size > MAX_ZIP_BYTES:
-        os.remove(dest)
+        os.remove(part)
         sys.exit(f"kanji-lookup: {os.path.basename(dest)} is {size} bytes"
                  f" (> {MAX_ZIP_BYTES}); refusing to continue")
+    os.replace(part, dest)
 
 
 def iter_entries(zip_path, array_key):

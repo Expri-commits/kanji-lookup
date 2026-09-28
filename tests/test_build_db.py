@@ -5,6 +5,7 @@ import importlib.util
 import json
 from pathlib import Path
 import os
+from unittest import mock
 import random
 import sqlite3
 import tempfile
@@ -274,6 +275,59 @@ class MainAtomicRebuildTests(unittest.TestCase):
             build_db.main()
         self.assertFalse(Path(str(self.db) + ".tmp").exists())
         self.assertEqual(self.word_rows(), [(1, "ok")])  # old DB untouched
+
+
+class DownloadMeterTests(unittest.TestCase):
+    """download: curl's progress meter (percent, speed, ETA) on a terminal,
+    silence everywhere else so pipes and tests stay clean."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def argv_for(self, tty):
+        class FakeStderr:
+            def isatty(self):
+                return tty
+
+            def write(self, *_):
+                pass
+
+        ran = []
+        dest = str(Path(self.tmp.name) / "asset.zip")
+        with mock.patch.object(build_db.sys, "stderr", FakeStderr()), \
+             mock.patch.object(build_db.subprocess, "run", self.fake_run(ran)):
+            build_db.download("https://example.com/a.zip", dest)
+        return ran[0]
+
+    @staticmethod
+    def fake_run(ran):
+        def run(cmd, check):
+            Path(cmd[-2]).write_bytes(b"stub asset")  # -o dest, url
+            ran.append(cmd)
+            return 0
+
+        return run
+
+    def test_terminal_shows_the_meter(self):
+        argv = self.argv_for(tty=True)
+        self.assertNotIn("-s", argv)
+        self.assertIn("-fSL", argv)
+        self.assertIn("--max-filesize", argv)
+
+    def test_pipe_stays_silent(self):
+        self.assertIn("-s", self.argv_for(tty=False))
+
+    def test_interrupted_part_file_does_not_count_as_downloaded(self):
+        part = Path(self.tmp.name) / "asset.zip.part"
+        part.write_bytes(b"half a download")
+        ran = []
+        with mock.patch.object(build_db.subprocess, "run", self.fake_run(ran)):
+            build_db.download("https://example.com/a.zip",
+                              str(Path(self.tmp.name) / "asset.zip"))
+        self.assertEqual(len(ran), 1)  # re-downloaded over the partial file
+        self.assertTrue((Path(self.tmp.name) / "asset.zip").exists())
+        self.assertFalse(part.exists())  # replaced by the completed download
 
 
 if __name__ == "__main__":
