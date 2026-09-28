@@ -10,7 +10,8 @@ Japanese, and features like Anki integration are out of scope.
 
 
 
-https://github.com/user-attachments/assets/60adb9a9-ca44-4b65-88b9-7246cc08e32d
+<img width="1920" height="1080" alt="screenrecording-2026-09-28_14-19-06_trimmed-1080p" src="https://github.com/user-attachments/assets/036cd0f1-9ef9-4684-bee1-dd3635720b2a" />
+
 
 
 
