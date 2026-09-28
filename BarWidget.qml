@@ -50,6 +50,29 @@ BarWidget {
   onBarChanged: injectPanel()
   onSettingsChanged: injectPanel()
 
+  // `omarchy plugin add` clones and enables but never runs plugin code, so
+  // the installer cannot launch the setup wizard. Until the dictionaries
+  // exist, prompt once per shell load with a clickable notification that
+  // opens setup.sh in a terminal.
+  Component.onCompleted: dbProbe.running = true
+
+  Process {
+    id: dbProbe
+    command: ["sh", "-c", 'test -f "${KANJI_LOOKUP_DB:-$HOME/.local/share/kanji-lookup/jmdict.db}"']
+    onExited: function(exitCode) {
+      if (exitCode !== 0) setupNotify.running = true
+    }
+  }
+
+  Process {
+    id: setupNotify
+    command: ["omarchy", "notification", "send", "-g", "辞", "-u", "normal",
+      "Kanji Lookup is missing its dictionaries",
+      "Click to run the setup wizard (dictionaries, OCR data, shortcut).",
+      "--exec", "xdg-terminal-exec", "-e",
+      String(Qt.resolvedUrl("setup.sh")).replace(/^file:\/\//, "")]
+  }
+
   Loader {
     id: panelLoader
     active: true

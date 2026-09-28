@@ -30,6 +30,10 @@ step skips what is already done. Everything it touches is the plugin data
 directory, the two tesseract packages, and one marked block in
 ~/.config/hypr/bindings.lua.
 
+You don't have to remember the setup.sh path. Until the dictionaries exist,
+the bar widget shows a notification that opens the wizard when clicked, and
+the panel opens with a Run setup button.
+
 ## First run and the dictionaries
 
 The repository does not ship the dictionary data. The build script downloads
@@ -39,7 +43,7 @@ one sqlite database (about 19 MB) at `~/.local/share/kanji-lookup/jmdict.db`.
 That download and build is why the first run takes a few minutes; running the
 script again skips the downloads and finishes in under a second. After the
 build, lookups work fully offline and take about 30 ms. Until the database
-exists, the panel says so and points to setup.sh.
+exists, the panel says so and offers the Run setup button.
 
 ## Use
 

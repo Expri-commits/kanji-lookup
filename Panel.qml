@@ -37,9 +37,15 @@ Panel {
     return String(Qt.resolvedUrl("scripts/" + name)).replace(/^file:\/\//, "")
   }
 
+  // setup.sh ships next to this file, one level above scripts/.
+  function setupPath() {
+    return String(Qt.resolvedUrl("setup.sh")).replace(/^file:\/\//, "")
+  }
+
   property int lookupSeq: 0
   property string lastQuery: ""
   property string statusText: ""
+  property bool dbMissing: false
   property string resultQuery: ""
   property string matchKind: "none"
   property var mainWord: null
@@ -172,7 +178,8 @@ Panel {
     var err = String(errCollector.text || "").trim()
     if (out.trim() === "DB_MISSING" || err.indexOf("DB_MISSING") !== -1) {
       if (!request.entryId && !request.previous) root.clearResults()
-      root.statusText = "Run setup.sh in the plugin folder to build the dictionary (see README)"
+      root.dbMissing = true
+      root.statusText = "Dictionaries not built yet. Run setup to build them (a few minutes)."
       return
     }
     if (exitCode !== 0) {
@@ -191,6 +198,7 @@ Panel {
   function applyResult(data, request) {
     if (!data || !Array.isArray(data.related) || !Array.isArray(data.kanji))
       throw new Error("Malformed lookup")
+    root.dbMissing = false
     root.resultQuery = String(data.query || request.query)
     root.matchKind = String(data.matchKind || "none")
     root.mainWord = data.main || null
@@ -255,6 +263,35 @@ Panel {
       // Assignment routes through onTextChanged into the debounce → lookup.
       searchField.text = text
     }
+  }
+
+  // Show the setup prompt as soon as the panel opens — the first-run
+  // notification can be dismissed, and waiting for a failed lookup hides
+  // the button exactly when the user needs it. Re-probes on every open so
+  // a completed setup clears the prompt on the next visit.
+  onOpenedChanged: if (root.opened) dbProbe.running = true
+
+  Process {
+    id: dbProbe
+    command: ["sh", "-c", 'test -f "${KANJI_LOOKUP_DB:-$HOME/.local/share/kanji-lookup/jmdict.db}"']
+    onExited: function(exitCode) {
+      if (exitCode === 0) {
+        if (root.dbMissing && !root.mainWord) {
+          root.dbMissing = false
+          root.statusText = ""
+        }
+        return
+      }
+      root.dbMissing = true
+      root.statusText = "Dictionaries not built yet. Run setup to build them (a few minutes)."
+    }
+  }
+
+  // The Run setup button opens the wizard in a terminal; xdg-terminal-exec
+  // picks whatever terminal the user configured.
+  Process {
+    id: setupLauncher
+    command: ["xdg-terminal-exec", "-e", root.setupPath()]
   }
 
   // Emit framed state markers rather than raw selection bytes. wl-paste --watch
@@ -479,6 +516,18 @@ Panel {
                 color: root.secondary
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.bodySmall
+              }
+
+              Button {
+                id: setupButton
+                objectName: "lookupSetupButton"
+                visible: root.dbMissing
+                text: "Run setup"
+                tooltipText: "Open the setup wizard in a terminal"
+                foreground: root.fg
+                accent: Color.accent
+                bordered: true
+                onClicked: setupLauncher.running = true
               }
 
               Column {
