@@ -18,6 +18,8 @@ from urllib.parse import quote
 
 RESULT_LIMIT = 25
 CANDIDATE_LIMIT = 500
+KANJI_LIMIT = 32
+QUERY_LIMIT = 4096
 
 
 def alternatives(value):
@@ -31,8 +33,15 @@ def is_ideograph(char):
 
 
 def ideographs(text):
-    """Distinct defined CJK ideographs, including supplementary extensions."""
-    return list(dict.fromkeys(char for char in text if is_ideograph(char)))
+    """At most KANJI_LIMIT distinct CJK ideographs, in source order."""
+    seen, result = set(), []
+    for char in text:
+        if is_ideograph(char) and char not in seen:
+            seen.add(char)
+            result.append(char)
+            if len(result) == KANJI_LIMIT:
+                break
+    return result
 
 
 def fix_one_vs_prolonged(query):
@@ -313,6 +322,9 @@ def main():
         print(json.dumps(empty_result(args.query), ensure_ascii=False,
                          separators=(",", ":")))
         return 0
+    if not args.check_db and len(args.query) > QUERY_LIMIT:
+        print(f"Text is too long. Select up to {QUERY_LIMIT} characters.", file=sys.stderr)
+        return 2
     db = os.environ.get("KANJI_LOOKUP_DB") or os.path.expanduser(
         "~/.local/share/kanji-lookup/jmdict.db")
     if not os.path.isfile(db):

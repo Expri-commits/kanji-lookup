@@ -23,7 +23,9 @@ Item {
       retryAfterExit = true
       return
     }
-    bindsProc.command = ["hyprctl", "-j", "binds"]
+    bindsProc.command = ["python3",
+      String(Qt.resolvedUrl("scripts/bounded-run.py")).replace(/^file:\/\//, ""),
+      "shortcut", "hyprctl", "-j", "binds"]
     bindsProc.running = true
   }
 
@@ -32,6 +34,7 @@ Item {
 
   Process {
     id: bindsProc
+    // The guard bounds both streams and kills stalled hyprctl after 5 seconds.
     stdout: StdioCollector { id: bindsOutput; waitForEnd: true }
     stderr: StdioCollector { id: bindsError; waitForEnd: true }
     onExited: function(exitCode) {

@@ -59,9 +59,15 @@ BarWidget {
   Process {
     id: dbProbe
     command: ["python3",
-      String(Qt.resolvedUrl("scripts/lookup-json.py")).replace(/^file:\/\//, ""), "--check-db"]
+      String(Qt.resolvedUrl("scripts/bounded-run.py")).replace(/^file:\/\//, ""), "probe",
+      "python3", String(Qt.resolvedUrl("scripts/lookup-json.py")).replace(/^file:\/\//, ""), "--check-db"]
+    stderr: StdioCollector { id: dbProbeError; waitForEnd: true }
     onExited: function(exitCode) {
-      if (exitCode !== 0) setupNotify.running = true
+      if (exitCode === 0) return
+      var err = String(dbProbeError.text || "")
+      if (err.indexOf("DB_MISSING") !== -1 || err.indexOf("DB_OUTDATED") !== -1)
+        setupNotify.running = true
+      else console.warn("Kanji Lookup dictionary check failed; open the panel to retry (exit " + exitCode + ")")
     }
   }
 

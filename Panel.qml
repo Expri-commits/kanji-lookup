@@ -51,6 +51,8 @@ Panel {
   property var mainWord: null
   property var relatedWords: []
   property var kanjiEntries: []
+  readonly property int maxKanjiEntries: 32
+  readonly property int maxQueryLength: 4096
   property var pendingRequest: null
   property var activeRequest: null
   property bool capturing: false
@@ -84,7 +86,8 @@ Panel {
     var request = root.pendingRequest
     root.pendingRequest = null
     root.activeRequest = request
-    lookupProc.command = ["python3", root.scriptPath("lookup-json.py")]
+    lookupProc.command = ["python3", root.scriptPath("bounded-run.py"), "lookup",
+      "python3", root.scriptPath("lookup-json.py")]
       .concat(request.entryId !== "" ? ["--entry-id", request.entryId] : [])
       .concat(["--", request.query])
     lookupProc.running = true
@@ -106,9 +109,24 @@ Panel {
     } else root.startPendingRequest()
   }
 
+  function queryTooLong(query) {
+    // Iterate Unicode code points, not UTF-16 units, and stop at the bound.
+    var count = 0
+    for (var character of query) {
+      if (++count > root.maxQueryLength) return true
+    }
+    return false
+  }
+
   function lookup(rawQuery) {
     var query = String(rawQuery || "").trim()
     debounce.stop()
+    if (root.queryTooLong(query)) {
+      root.cancelLookup()
+      root.clearResults()
+      root.statusText = "Text is too long. Select up to " + root.maxQueryLength + " characters."
+      return
+    }
     root.lastQuery = query
     if (query === "") {
       root.cancelLookup()
@@ -141,6 +159,8 @@ Panel {
   // is set first so onTextChanged sees no change and leaves the debounce alone.
   function searchFor(q) {
     var query = String(q || "").trim()
+    // Reject oversized IPC/OCR input before TextField can silently truncate it.
+    if (root.queryTooLong(query)) { root.lookup(query); return }
     root.lastQuery = query
     searchField.text = query
     root.lookup(query)
@@ -209,7 +229,7 @@ Panel {
     root.resultQuery = String(data.query || request.query)
     root.matchKind = String(data.matchKind || "none")
     root.mainWord = data.main || null
-    root.kanjiEntries = data.kanji
+    root.kanjiEntries = data.kanji.slice(0, root.maxKanjiEntries)
     root.relatedWords = WordNavigation.relatedAfterFocus(request.previous, root.mainWord, data.related, 25)
     resultScroll.contentY = 0
     kanjiStrip.contentX = 0
@@ -229,13 +249,15 @@ Panel {
     if (root.capturing || ocrProc.running) return
     root.capturing = true
     root.statusText = "Capturing screen…"
-    ocrProc.command = ["bash", root.scriptPath("ocr.sh")]
+    ocrProc.command = ["python3", root.scriptPath("bounded-run.py"), "ocr",
+      "bash", root.scriptPath("ocr.sh")]
     ocrProc.running = true
   }
 
   Process {
     id: lookupProc
     property bool cancelled: false
+    // bounded-run.py enforces byte budgets before any data reaches collectors.
     stdout: StdioCollector { id: outCollector; waitForEnd: true }
     stderr: StdioCollector { id: errCollector; waitForEnd: true }
     onExited: function(exitCode) {
@@ -281,7 +303,8 @@ Panel {
 
   Process {
     id: dbProbe
-    command: ["python3", root.scriptPath("lookup-json.py"), "--check-db"]
+    command: ["python3", root.scriptPath("bounded-run.py"), "probe",
+      "python3", root.scriptPath("lookup-json.py"), "--check-db"]
     stderr: StdioCollector { id: dbProbeError; waitForEnd: true }
     onExited: function(exitCode) {
       if (exitCode === 0) {
@@ -291,7 +314,10 @@ Panel {
         }
         return
       }
-      root.showDictionarySetup(String(dbProbeError.text || "").indexOf("DB_OUTDATED") !== -1)
+      var err = String(dbProbeError.text || "").trim()
+      if (err.indexOf("DB_MISSING") !== -1 || err.indexOf("DB_OUTDATED") !== -1)
+        root.showDictionarySetup(err.indexOf("DB_OUTDATED") !== -1)
+      else root.statusText = err.split("\n")[0] || "Dictionary check failed"
     }
   }
 
@@ -433,6 +459,9 @@ Panel {
             width: parent.width - captureButton.width - parent.spacing
             height: parent.height
             placeholderText: "Search a word or kanji…"
+            // Qt counts UTF-16 units; allow two per supplementary character.
+            // queryTooLong() enforces the actual Unicode character limit.
+            maximumLength: root.maxQueryLength * 2
             foreground: root.fg
             accent: Color.accent
             font.family: root.fontFamily

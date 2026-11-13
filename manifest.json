@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.expri-commits.kanji-lookup",
   "name": "Kanji Lookup",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "author": "Expri",
   "license": "MIT",
   "description": "Japanese dictionary lookup in the bar: search JMdict/KANJIDIC2 offline, capture kanji from the screen via OCR",

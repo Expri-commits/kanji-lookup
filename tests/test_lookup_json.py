@@ -97,6 +97,31 @@ class JsonLookupTests(unittest.TestCase):
         self.assertEqual([w["id"] for w in data["related"][:2]], ["12", "10"])
         self.assertEqual([k["char"] for k in data["related"][0]["kanji"]], ["日", "本"])
 
+    def test_query_dependent_kanji_are_count_limited(self):
+        query = "".join(chr(0x4e00 + index) for index in range(100))
+        for args in [(), ("--entry-id", "999999")]:
+            with self.subTest(args=args):
+                data = self.result(query, *args)
+                self.assertEqual([entry["char"] for entry in data["kanji"]], list(query[:32]))
+        with sqlite3.connect(self.db) as con:
+            con.execute("INSERT INTO words(id, kanji, reading, glosses) VALUES (30, ?, 'ながい', 'long entry')", (query,))
+        exact = self.result(query)
+        self.assertEqual(len(exact["main"]["kanji"]), 32)
+        self.assertEqual(exact["kanji"], exact["main"]["kanji"])
+        self.assertTrue(all(len(word["kanji"]) <= 32 for word in exact["related"]))
+
+    def test_oversized_query_is_rejected_before_database_access(self):
+        accepted = self.result("あ" * 4096)
+        self.assertEqual(len(accepted["query"]), 4096)
+        rejected = self.run_lookup("あ" * 4097, db=self.db.parent / "missing.db")
+        self.assertEqual((rejected.returncode, rejected.stdout), (2, ""))
+        self.assertIn("Text is too long", rejected.stderr)
+        supplementary = self.result("𠀀" * 4096)
+        self.assertEqual(len(supplementary["query"]), 4096)
+        rejected = self.run_lookup("𠀀" * 4097)
+        self.assertEqual(rejected.returncode, 2)
+        self.assertIn("Text is too long", rejected.stderr)
+
     def test_alternate_spelling_and_reading_are_exact(self):
         spelling = self.result("讀む")
         self.assertEqual(spelling["main"]["term"], "讀む")

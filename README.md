@@ -41,7 +41,9 @@ packages, and one marked block in ~/.config/hypr/bindings.lua.
 
 ## First run and the dictionaries
 
-The repository does not ship the dictionary data. The build script downloads
+Manual setup is required after installation: the dictionaries must be downloaded
+and built locally through the setup wizard. The repository does not ship the
+dictionary data. The build script downloads
 JMdict and KANJIDIC2 from the canonical jmdict-simplified releases, caches
 the zip files in `~/.local/share/kanji-lookup/src/`, and compiles them into
 one sqlite database (about 20 MB) at `~/.local/share/kanji-lookup/jmdict.db`.
@@ -98,6 +100,28 @@ Japanese elsewhere, `omarchy pkg drop tesseract-data-jpn tesseract-data-jpn_vert
 removes it.
 
 Optionally delete the data directory `~/.local/share/kanji-lookup/`.
+
+## Resource limits
+
+Finite background helpers run through `scripts/bounded-run.py`, which enforces
+these deadlines and output budgets **before** data reaches Quickshell collectors:
+
+| Helper | Deadline | Maximum stdout |
+| --- | --- | --- |
+| Dictionary lookup | 10 seconds | 1 MiB |
+| OCR, including region selection | 120 seconds | 16 KiB |
+| Dictionary schema check | 5 seconds | 1 KiB |
+| Shortcut detection | 5 seconds | 1 MiB |
+
+Each helper also has an 8 KiB stderr budget, including guard diagnostics. Timeout,
+output overflow, or cancellation kills the helper's private process group and
+its descendants. Oversized responses fail rather than returning truncated JSON.
+Searches accept at most 4,096 characters. Dictionary results and the panel both
+cap kanji cards at 32; related words remain capped at 25.
+
+The interactive setup wizard runs separately in a terminal, without these
+background-helper deadlines. Selection watchers are intentionally long-lived;
+they emit fixed state markers rather than selected text.
 
 ## Development
 
