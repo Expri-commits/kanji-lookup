@@ -172,14 +172,21 @@ Panel {
     else capture()
   }
 
+  function showDictionarySetup(outdated) {
+    root.dbMissing = true
+    root.statusText = outdated
+      ? "Dictionaries need updating. Run setup to rebuild them with correct spelling/reading pairs."
+      : "Dictionaries not built yet. Run setup to build them (a few minutes)."
+  }
+
   function finishLookup(exitCode, request) {
     if (request.seq !== root.lookupSeq || searchField.text !== request.fieldText) return
     var out = String(outCollector.text || "")
     var err = String(errCollector.text || "").trim()
-    if (out.trim() === "DB_MISSING" || err.indexOf("DB_MISSING") !== -1) {
+    var outdated = out.trim() === "DB_OUTDATED" || err.indexOf("DB_OUTDATED") !== -1
+    if (outdated || out.trim() === "DB_MISSING" || err.indexOf("DB_MISSING") !== -1) {
       if (!request.entryId && !request.previous) root.clearResults()
-      root.dbMissing = true
-      root.statusText = "Dictionaries not built yet. Run setup to build them (a few minutes)."
+      root.showDictionarySetup(outdated)
       return
     }
     if (exitCode !== 0) {
@@ -260,8 +267,9 @@ Panel {
       // user cancelled the region selection — a real miss is exit 1 with
       // stderr. Treat it as a silent cancel, not an OCR failure.
       if (text === "") { root.statusText = ""; return }
-      // Assignment routes through onTextChanged into the debounce → lookup.
-      searchField.text = text
+      // OCR is an explicit new search, even when it repeats the field text
+      // (which would not emit textChanged and would leave the capture status).
+      root.searchFor(text)
     }
   }
 
@@ -273,7 +281,8 @@ Panel {
 
   Process {
     id: dbProbe
-    command: ["sh", "-c", 'test -f "${KANJI_LOOKUP_DB:-$HOME/.local/share/kanji-lookup/jmdict.db}"']
+    command: ["python3", root.scriptPath("lookup-json.py"), "--check-db"]
+    stderr: StdioCollector { id: dbProbeError; waitForEnd: true }
     onExited: function(exitCode) {
       if (exitCode === 0) {
         if (root.dbMissing && !root.mainWord) {
@@ -282,8 +291,7 @@ Panel {
         }
         return
       }
-      root.dbMissing = true
-      root.statusText = "Dictionaries not built yet. Run setup to build them (a few minutes)."
+      root.showDictionarySetup(String(dbProbeError.text || "").indexOf("DB_OUTDATED") !== -1)
     }
   }
 

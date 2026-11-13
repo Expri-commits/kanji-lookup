@@ -24,6 +24,7 @@ exit 1
 """
 
 PYTHON_STUB = """#!/bin/bash
+if [[ ${2:-} == --check-db ]]; then exit 0; fi
 printf '%s\\n' "python3 $*" >> "$CALLS_LOG"
 """
 
@@ -172,6 +173,20 @@ class SetupWizardTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("build-db.py", self.calls())
 
+    def test_outdated_dictionary_defaults_to_rebuilding(self):
+        self.write_stub("python3", PYTHON_STUB.replace("then exit 0", "then exit 2"))
+        result = self.run_setup("\nnone\n")  # rebuild? Enter = yes; no shortcut
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("need updating", result.stdout)
+        self.assertIn("build-db.py", self.calls())
+
+    def test_outdated_dictionary_rebuild_can_be_declined(self):
+        self.write_stub("python3", PYTHON_STUB.replace("then exit 0", "then exit 2"))
+        result = self.run_setup("n\nnone\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("need updating", result.stdout)
+        self.assertNotIn("build-db.py", self.calls())
+
     def test_offers_enable_when_not_enabled(self):
         self.plugin_list_json = "[]"
         result = self.run_setup("y\n\n\n")  # enable? yes; rebuild? no; shortcut: Enter
@@ -212,6 +227,27 @@ class SetupWizardTests(unittest.TestCase):
         self.assertNotIn("]])", self.bindings())
         self.assertNotIn("omarchy-shell", self.bindings())  # body must go too
         self.assertNotIn("wl-paste", self.bindings())
+
+    def test_removing_long_string_bind_preserves_following_indented_settings(self):
+        keep = '  o.bind("SUPER+K", "Keep me", "echo keep")\n'
+        for command in ['[[echo test]]', '[[\n  echo test]]', '"echo [["']:
+            with self.subTest(command=command):
+                path = self.home / ".config/hypr/bindings.lua"
+                path.write_text('o.bind("SUPER+SHIFT+J", "Kanji lookup", ' + command + ')\n' + keep)
+                result = self.run_setup("\ny\nnone\n")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.bindings(), keep)
+
+    def test_removing_long_string_bind_accepts_lua_whitespace(self):
+        keep = '  o.bind("SUPER+K", "Keep me", "echo keep")\n'
+        for separator in [' , ', ',\t', '\t,\t']:
+            with self.subTest(separator=separator):
+                path = self.home / ".config/hypr/bindings.lua"
+                path.write_text('o.bind("SUPER+SHIFT+J", "Kanji lookup"' + separator
+                                + '[[\n  echo test\n]])\n' + keep)
+                result = self.run_setup("\ny\nnone\n")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.bindings(), keep)
 
     def test_remove_after_setup_cleans_comment_too(self):
         self.run_setup("\n\n")  # writes bind + marker comment

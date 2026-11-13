@@ -2,6 +2,7 @@
 """Return one offline dictionary lookup as JSON for the QML panel.
 
 Usage: python3 lookup-json.py QUERY [--entry-id ID]
+       python3 lookup-json.py --check-db
 The database is the one built by build-db.py, or KANJI_LOOKUP_DB when set.
 """
 
@@ -110,10 +111,21 @@ class KanjiResolver:
 def word_object(row, query, resolver):
     spellings = alternatives(row["kanji"])
     readings = alternatives(row["reading"])
-    term = query if query in spellings else (spellings[0] if spellings else
-                                             (query if query in readings else
-                                              (readings[0] if readings else "")))
-    reading = query if query in readings else (readings[0] if readings else "")
+    rules = json.loads(row["reading_rules"] or "{}")
+
+    def applies(reading, spelling):
+        allowed = rules.get(reading, ["*"])
+        return "*" in allowed or spelling in allowed
+
+    if query in readings and query not in spellings:
+        reading = query
+        term = next((part for part in spellings if applies(reading, part)), query)
+    elif spellings:
+        term = query if query in spellings else spellings[0]
+        reading = next((part for part in readings if applies(part, term)), "")
+    else:
+        reading = query if query in readings else (readings[0] if readings else "")
+        term = reading
     return {
         "id": str(row["id"]), "term": term, "reading": reading,
         "glosses": row["glosses"] or "", "spellings": spellings,
@@ -123,7 +135,7 @@ def word_object(row, query, resolver):
 
 def find_exact(con, query):
     rows = con.execute(
-        """SELECT id, kanji, reading, glosses FROM words
+        """SELECT id, kanji, reading, glosses, reading_rules FROM words
            WHERE instr(';' || COALESCE(kanji, '') || ';', ';' || ? || ';') > 0
               OR instr(';' || COALESCE(reading, '') || ';', ';' || ? || ';') > 0
            ORDER BY CASE WHEN instr(';' || COALESCE(kanji, '') || ';',
@@ -153,7 +165,7 @@ def find_direct(con, query, exclude_id=None):
     # substring spanning a semicolon cannot appear as a dictionary match.
     pattern = like_literal(query)
     rows = con.execute(
-        """SELECT id, kanji, reading, glosses FROM words
+        """SELECT id, kanji, reading, glosses, reading_rules FROM words
            WHERE kanji LIKE ? ESCAPE '\\' OR reading LIKE ? ESCAPE '\\'
            ORDER BY CASE
              WHEN instr(';' || COALESCE(kanji, '') || ';', ';' || ? || ';') > 0 THEN 0
@@ -172,11 +184,10 @@ def find_direct(con, query, exclude_id=None):
 def find_embedded(con, query):
     """OCR sentence fallback: find dictionary forms literally inside query."""
     ranked = []
-    for row in con.execute("SELECT id, kanji, reading, glosses FROM words WHERE kanji != ''"):
+    for row in con.execute("SELECT id, kanji, reading, glosses, reading_rules FROM words"):
         spellings = alternatives(row["kanji"])
-        # Ignore one-character entries, as the existing TSV lookup does.
-        if not spellings or len(spellings[0]) < 2:
-            continue
+        # Ignore one-character matches, not whole entries: kana-only words and
+        # longer alternate spellings still belong in the sentence results.
         spelling_matches = [part for part in spellings if len(part) >= 2 and part in query]
         reading_matches = [part for part in alternatives(row["reading"])
                            if len(part) >= 2 and part in query]
@@ -208,7 +219,7 @@ def fill_shared_kanji(con, term, seen, remaining):
                        for _ in chars)
     patterns = [like_literal(char) for char in chars]
     rows = con.execute(
-        f"""SELECT id, kanji, reading, glosses FROM words WHERE {where}
+        f"""SELECT id, kanji, reading, glosses, reading_rules FROM words WHERE {where}
             ORDER BY ({score}) DESC,
                      length(COALESCE(kanji, '')) + length(COALESCE(reading, '')), id
             LIMIT ?""",
@@ -237,7 +248,7 @@ def lookup(con, query, entry_id=None):
     resolver = KanjiResolver(con)
     if entry_id is not None:
         main_row = con.execute(
-            "SELECT id, kanji, reading, glosses FROM words WHERE id = ?", (entry_id,)
+            "SELECT id, kanji, reading, glosses, reading_rules FROM words WHERE id = ?", (entry_id,)
         ).fetchone()
         if main_row is None:
             result["kanji"] = resolver.in_text(query)
@@ -292,10 +303,13 @@ def lookup(con, query, entry_id=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("query", metavar="QUERY")
+    parser.add_argument("query", metavar="QUERY", nargs="?")
     parser.add_argument("--entry-id", metavar="ID")
+    parser.add_argument("--check-db", action="store_true", help="check dictionary schema without a lookup")
     args = parser.parse_args()
-    if not args.query:
+    if args.query is None and not args.check_db:
+        parser.error("QUERY is required unless --check-db is used")
+    if args.query == "" and not args.check_db:
         print(json.dumps(empty_result(args.query), ensure_ascii=False,
                          separators=(",", ":")))
         return 0
@@ -309,6 +323,12 @@ def main():
         con = sqlite3.connect("file:" + quote(os.path.abspath(db)) + "?mode=ro", uri=True)
         con.row_factory = sqlite3.Row
         try:
+            columns = {row["name"] for row in con.execute("PRAGMA table_info(words)")}
+            if "reading_rules" not in columns:
+                print("DB_OUTDATED", file=sys.stderr)
+                return 2
+            if args.check_db:
+                return 0
             result = lookup(con, args.query, args.entry_id)
         finally:
             con.close()

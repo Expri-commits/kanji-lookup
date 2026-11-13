@@ -5,7 +5,8 @@ Downloads the latest jmdict-eng (English JMdict) and kanjidic2-en (KANJIDIC2)
 JSON zips into ~/.local/share/kanji-lookup/src/ (skipped if already present), then
 writes a SQLite DB to ~/.local/share/kanji-lookup/jmdict.db with two tables:
 
-    words(id INTEGER PRIMARY KEY, kanji TEXT, reading TEXT, glosses TEXT)
+    words(id INTEGER PRIMARY KEY, kanji TEXT, reading TEXT, glosses TEXT,
+          reading_rules TEXT)
     kanji(char TEXT PRIMARY KEY, meanings TEXT, "on" TEXT, kun TEXT,
           strokes INTEGER, grade INTEGER)
 
@@ -211,13 +212,19 @@ def iter_entries(zip_path, array_key):
 def parse_jmdict(zip_path):
     for w in iter_entries(zip_path, "words"):
         kanji = ";".join(k["text"] for k in w.get("kanji", []))
-        reading = ";".join(k["text"] for k in w.get("kana", []))
+        kana = w.get("kana", [])
+        reading = ";".join(k["text"] for k in kana)
+        # Missing / ["*"] means any spelling; [] means kana-only. Keep
+        # restrictions so alternate spellings cannot inherit a wrong reading.
+        rules = {k["text"]: k["appliesToKanji"] for k in kana
+                 if k.get("appliesToKanji", ["*"]) != ["*"]}
         senses = []
         for s in w.get("sense", []):
             gloss = ", ".join(g["text"] for g in s.get("gloss", []))
             if gloss:
                 senses.append(gloss)
-        yield (int(w["id"]), kanji, reading, " | ".join(senses))
+        yield (int(w["id"]), kanji, reading, " | ".join(senses),
+               json.dumps(rules, ensure_ascii=False, separators=(",", ":")))
 
 
 def parse_kanjidic2(zip_path):
@@ -231,6 +238,19 @@ def parse_kanjidic2(zip_path):
         misc = c.get("misc", {})
         strokes = (misc.get("strokeCounts") or [None])[0]
         yield (c["literal"], meanings, on, kun, strokes, misc.get("grade"))
+
+
+def has_reading_rules(path):
+    """Old dictionaries need rebuilding even if their timestamp looks current."""
+    try:
+        uri = "file:" + urllib.parse.quote(os.path.abspath(path)) + "?mode=ro"
+        con = sqlite3.connect(uri, uri=True)
+        try:
+            return any(row[1] == "reading_rules" for row in con.execute("PRAGMA table_info(words)"))
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return False
 
 
 def main():
@@ -247,7 +267,8 @@ def main():
     # already reflects both cached zips and this builder version.
     if (os.path.exists(DB) and os.path.getmtime(DB) >= os.path.getmtime(__file__)
             and os.path.getmtime(DB) >= os.path.getmtime(jmdict_zip)
-            and os.path.getmtime(DB) >= os.path.getmtime(kanjidic_zip)):
+            and os.path.getmtime(DB) >= os.path.getmtime(kanjidic_zip)
+            and has_reading_rules(DB)):
         print(f"DB up to date ({time.strftime('%Y-%m-%d', time.localtime(os.path.getmtime(DB)))});"
               " delete it or touch a zip to force rebuild")
         return
@@ -265,12 +286,13 @@ def main():
     try:
         con.executescript(
             """
-            CREATE TABLE words(id INTEGER PRIMARY KEY, kanji TEXT, reading TEXT, glosses TEXT);
+            CREATE TABLE words(id INTEGER PRIMARY KEY, kanji TEXT, reading TEXT, glosses TEXT,
+                               reading_rules TEXT NOT NULL DEFAULT '{}');
             CREATE TABLE kanji(char TEXT PRIMARY KEY, meanings TEXT, "on" TEXT, kun TEXT,
                                strokes INTEGER, grade INTEGER);
             """
         )
-        con.executemany("INSERT INTO words VALUES (?,?,?,?)", words)
+        con.executemany("INSERT INTO words VALUES (?,?,?,?,?)", words)
         con.executemany('INSERT INTO kanji VALUES (?,?,?,?,?,?)', kanji)
         con.commit()
         wc = con.execute("SELECT COUNT(*) FROM words").fetchone()[0]

@@ -60,11 +60,12 @@ class JsonLookupTests(unittest.TestCase):
         self.db = Path(tmp.name) / "jmdict.db"
         con = sqlite3.connect(self.db)
         con.executescript(
-            'CREATE TABLE words(id INTEGER PRIMARY KEY, kanji TEXT, reading TEXT, glosses TEXT);'
+            'CREATE TABLE words(id INTEGER PRIMARY KEY, kanji TEXT, reading TEXT, glosses TEXT,'
+            " reading_rules TEXT NOT NULL DEFAULT '{}');"
             'CREATE TABLE kanji(char TEXT PRIMARY KEY, meanings TEXT, "on" TEXT, kun TEXT,'
             ' strokes INTEGER, grade INTEGER);'
         )
-        con.executemany("INSERT INTO words VALUES (?,?,?,?)", WORDS)
+        con.executemany("INSERT INTO words(id, kanji, reading, glosses) VALUES (?,?,?,?)", WORDS)
         con.executemany("INSERT INTO kanji VALUES (?,?,?,?,?,?)", KANJI)
         con.commit()
         con.close()
@@ -110,6 +111,36 @@ class JsonLookupTests(unittest.TestCase):
         self.assertEqual(homophones["matchKind"], "reading")
         self.assertEqual(homophones["related"][0]["id"], "19")
         self.assertEqual(homophones["related"][0]["reading"], "よむ")
+
+    def test_spelling_and_reading_restrictions_apply_in_both_directions(self):
+        rows = [
+            (30, "河口;川口", "かこう;かわぐち", "river mouth",
+             {"かこう": ["河口"], "かわぐち": ["*"]}),
+            (31, "閾値;しきい値;いき値", "いきち;しきいち", "threshold",
+             {"いきち": ["閾値", "いき値"], "しきいち": ["閾値", "しきい値"]}),
+            (32, "付いてる;付いている", "ついてる;ついている;ツイてる", "lucky",
+             {"ついてる": ["付いてる"], "ついている": ["付いている"], "ツイてる": []}),
+        ]
+        with sqlite3.connect(self.db) as con:
+            con.executemany("INSERT INTO words VALUES (?,?,?,?,?)",
+                            [(*row[:4], json.dumps(row[4])) for row in rows])
+        for query, term, reading in [
+            ("川口", "川口", "かわぐち"),
+            ("しきい値", "しきい値", "しきいち"),
+            ("付いている", "付いている", "ついている"),
+            ("しきいち", "閾値", "しきいち"),
+            ("ついている", "付いている", "ついている"),
+            ("ツイてる", "ツイてる", "ツイてる"),
+        ]:
+            with self.subTest(query=query):
+                main = self.result(query)["main"]
+                self.assertEqual((main["term"], main["reading"]), (term, reading))
+        selected = self.result("付いている", "--entry-id", "32")["main"]
+        self.assertEqual(selected["reading"], "ついている")
+        # Related entries use the same restriction-aware display path.
+        related = self.result("川")["related"]
+        river = next(word for word in related if word["id"] == "30")
+        self.assertEqual((river["term"], river["reading"]), ("河口", "かこう"))
 
     def test_exact_spelling_precedes_reading_and_homonym_id_is_stable(self):
         spelling = self.result("はなす")
@@ -186,6 +217,24 @@ class JsonLookupTests(unittest.TestCase):
         self.assertEqual(kana_sentence["related"][0]["id"], "16")
         self.assertIn("7", [word["id"] for word in kana_sentence["related"]])
 
+    def test_embedded_sentence_includes_kana_only_and_longer_alternatives(self):
+        with sqlite3.connect(self.db) as con:
+            con.executemany("INSERT INTO words(id, kanji, reading, glosses) VALUES (?,?,?,?)", [
+                (30, "", "テレビ", "television"),
+                (31, "", "ラジオ", "radio"),
+                (32, "字;漢文字", "じ;かんもじ", "characters"),
+                (33, "", "を", "one-character particle"),
+            ])
+        for sentence, wanted in [("テレビをみます", "30"),
+                                 ("ここにはラジオがあります", "31"),
+                                 ("これは漢文字です", "32")]:
+            with self.subTest(sentence=sentence):
+                data = self.result(sentence)
+                self.assertEqual(data["matchKind"], "embedded")
+                ids = [word["id"] for word in data["related"]]
+                self.assertIn(wanted, ids)
+                self.assertNotIn("33", ids)
+
     def test_wildcards_and_quotes_are_literal(self):
         for query in ("桜%", "' OR 1=1 --", "\\"):
             with self.subTest(query=query):
@@ -235,6 +284,25 @@ class JsonLookupTests(unittest.TestCase):
         proc = self.run_lookup("--", "-unexpected")
         self.assertEqual((proc.returncode, proc.stderr), (0, ""))
         self.assertEqual(json.loads(proc.stdout)["query"], "-unexpected")
+
+    def test_old_database_requests_a_rebuild_without_changing_it(self):
+        legacy = self.db.parent / "legacy.db"
+        with sqlite3.connect(legacy) as con:
+            con.execute("CREATE TABLE words(id INTEGER PRIMARY KEY, kanji TEXT, reading TEXT, glosses TEXT)")
+            con.execute("INSERT INTO words VALUES (1, '川口', 'かこう;かわぐち', 'river mouth')")
+        before = legacy.read_bytes()
+        for args in [("川口",), ("--check-db",)]:
+            proc = self.run_lookup(*args, db=legacy)
+            self.assertEqual((proc.returncode, proc.stdout, proc.stderr),
+                             (2, "", "DB_OUTDATED\n"))
+        self.assertEqual(legacy.read_bytes(), before)
+
+    def test_check_db_is_silent_for_current_schema_and_detects_missing_db(self):
+        current = self.run_lookup("--check-db")
+        self.assertEqual((current.returncode, current.stdout, current.stderr), (0, "", ""))
+        missing = self.run_lookup("--check-db", db=self.db.parent / "missing.db")
+        self.assertEqual((missing.returncode, missing.stdout, missing.stderr),
+                         (2, "", "DB_MISSING\n"))
 
     def test_missing_and_invalid_database_are_clean_errors(self):
         missing = self.run_lookup("桜", db=self.db.parent / "missing.db")

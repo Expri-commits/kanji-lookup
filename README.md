@@ -44,12 +44,17 @@ packages, and one marked block in ~/.config/hypr/bindings.lua.
 The repository does not ship the dictionary data. The build script downloads
 JMdict and KANJIDIC2 from the canonical jmdict-simplified releases, caches
 the zip files in `~/.local/share/kanji-lookup/src/`, and compiles them into
-one sqlite database (about 19 MB) at `~/.local/share/kanji-lookup/jmdict.db`.
+one sqlite database (about 20 MB) at `~/.local/share/kanji-lookup/jmdict.db`.
 That download and build is why the first run takes a few minutes; while a
 download runs, the terminal shows its progress, speed, and estimated time
 remaining. Running the script again skips the downloads and finishes in
 under a second. After the build, lookups work fully offline and take about
 30 ms.
+
+If an older dictionary database lacks spelling/reading restrictions, the panel
+shows an update prompt instead of guessing readings. Run `setup.sh` again and
+accept the rebuild to upgrade it; the old database stays intact if rebuilding
+fails.
 
 ## Use
 
@@ -107,7 +112,8 @@ Run the tests:
     python3 -m unittest discover -s tests -v
 
 Image tests use the local Tesseract data and ImageMagick and skip when those
-are missing.
+are missing. Panel OCR-handler tests use the QML test runner and skip when it
+is missing.
 
 ## License
 

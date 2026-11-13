@@ -21,7 +21,7 @@ _spec.loader.exec_module(build_db)
 
 
 class ParseJmdictTests(unittest.TestCase):
-    """parse_jmdict: one (id, kanji, reading, glosses) row per word entry."""
+    """parse_jmdict: one row per entry, including spelling/reading restrictions."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -44,20 +44,32 @@ class ParseJmdictTests(unittest.TestCase):
                 {"gloss": []},  # a sense without glosses contributes nothing
             ],
         }])))
-        self.assertEqual(rows, [(1000010, "読む", "よむ;ヨム", "to read | to peruse")])
+        self.assertEqual(rows, [(1000010, "読む", "よむ;ヨム", "to read | to peruse", "{}")])
 
     def test_missing_optional_fields_become_empty_columns(self):
         # No kanji/kana arrays (reading-only entry); a numeric id works too.
         rows = list(build_db.parse_jmdict(self.zip_with([
             {"id": 2, "sense": [{"gloss": [{"text": "meaning"}]}]},
         ])))
-        self.assertEqual(rows, [(2, "", "", "meaning")])
+        self.assertEqual(rows, [(2, "", "", "meaning", "{}")])
 
     def test_full_glosses_are_preserved_for_focused_word_details(self):
         rows = list(build_db.parse_jmdict(self.zip_with([
             {"id": 3, "sense": [{"gloss": [{"text": "x" * 500}]}]},
         ])))
-        self.assertEqual(rows, [(3, "", "", "x" * 500)])
+        self.assertEqual(rows, [(3, "", "", "x" * 500, "{}")])
+
+    def test_reading_restrictions_preserve_empty_and_explicit_spelling_lists(self):
+        rows = list(build_db.parse_jmdict(self.zip_with([{
+            "id": "1577300",
+            "kanji": [{"text": "河口"}, {"text": "川口"}],
+            "kana": [
+                {"text": "かこう", "appliesToKanji": ["河口"]},
+                {"text": "かわぐち", "appliesToKanji": ["*"]},
+                {"text": "カコウ", "appliesToKanji": []},
+            ],
+        }])))
+        self.assertEqual(json.loads(rows[0][4]), {"かこう": ["河口"], "カコウ": []})
 
     def test_empty_dictionary_yields_no_rows(self):
         self.assertEqual(list(build_db.parse_jmdict(self.zip_with([]))), [])
@@ -256,6 +268,27 @@ class MainAtomicRebuildTests(unittest.TestCase):
             return con.execute("SELECT id, glosses FROM words").fetchall()
         finally:
             con.close()
+
+    def test_legacy_schema_rebuilds_even_with_a_newer_database_timestamp(self):
+        self.write_zip(self.jmdict, json.dumps({"words": [{
+            "id": "2", "kanji": [{"text": "河口"}, {"text": "川口"}],
+            "kana": [{"text": "かこう", "appliesToKanji": ["河口"]},
+                     {"text": "かわぐち", "appliesToKanji": ["*"]}],
+        }]}))
+        self.write_zip(self.kanjidic, json.dumps({"characters": []}))
+        with sqlite3.connect(self.db) as con:
+            con.execute("CREATE TABLE words(id INTEGER PRIMARY KEY, kanji TEXT, reading TEXT, glosses TEXT)")
+            con.execute("INSERT INTO words VALUES (1, '', '', 'legacy')")
+        newer = time.time() + 100
+        os.utime(self.db, (newer, newer))
+        build_db.main()
+        with sqlite3.connect(self.db) as con:
+            row = con.execute("SELECT id, reading_rules FROM words").fetchone()
+        self.assertEqual(row[0], 2)
+        self.assertEqual(json.loads(row[1]), {"かこう": ["河口"]})
+        # Once upgraded, the existing fast up-to-date path must still work.
+        with mock.patch.object(build_db, "parse_jmdict", side_effect=AssertionError("unexpected rebuild")):
+            build_db.main()
 
     def test_corrupt_zip_aborts_without_losing_previous_db(self):
         self.write_zip(self.jmdict, json.dumps(

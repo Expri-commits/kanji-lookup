@@ -57,10 +57,13 @@ remove_kanji_bind() {
   awk '
     /^-- Kanji Lookup: bind added by setup\.sh/ { next }
     /o\.bind\("[^"]*", *"Kanji lookup"/ {
-      if ($0 ~ /\[\[/) skipping = 1
+      # Only an actual long-string argument starts a body, not [[ inside
+      # a quoted command. A same-line ]] already closes that body.
+      if (match($0, /o\.bind\("[^"]*",[[:space:]]*"Kanji lookup"[[:space:]]*,[[:space:]]*\[\[/))
+        skipping = substr($0, RSTART + RLENGTH) !~ /\]\]/
       next
     }
-    skipping && /^[[:space:]]*\]\]\)/ { skipping = 0; next }
+    skipping && /\]\]/ { skipping = 0; next }
     skipping && /^$/ { next }
     skipping && /^[[:space:]]/ { next }
     # Unterminated body (mangled file): stop at the next unindented line so a
@@ -84,10 +87,18 @@ if ! omarchy plugin list --json 2>/dev/null | jq -e --arg id "$PLUGIN_ID" \
 fi
 
 if [[ -f $DATA_DIR/jmdict.db ]]; then
-  say "Dictionaries: already built ($DATA_DIR/jmdict.db)"
-  if ask "Rebuild from the latest JMdict/KANJIDIC2 release?" N; then
+  rebuild_default=N
+  if KANJI_LOOKUP_DB="$DATA_DIR/jmdict.db" python3 "$PLUGIN_DIR/scripts/lookup-json.py" --check-db 2>/dev/null; then
+    say "Dictionaries: already built ($DATA_DIR/jmdict.db)"
+  else
+    say "Dictionaries: need updating to preserve spelling/reading restrictions."
+    rebuild_default=Y
+  fi
+  if ask "Rebuild from the latest JMdict/KANJIDIC2 release?" "$rebuild_default"; then
     python3 "$PLUGIN_DIR/scripts/build-db.py" \
       || say "Rebuild failed; retry with: python3 $PLUGIN_DIR/scripts/build-db.py"
+  elif [[ $rebuild_default == Y ]]; then
+    say "Update later with: python3 $PLUGIN_DIR/scripts/build-db.py"
   fi
 elif ask "Download and build the offline dictionaries now? (~30 MB, a few minutes)" Y; then
   command -v python3 >/dev/null || die "python3 is required by scripts/build-db.py"
